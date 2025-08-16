@@ -1,66 +1,73 @@
-"use client"
+"use client";
 
-import { useState } from "react"
-import { PortfolioDashboard } from "@/components/portfolio-dashboard"
-import { RulesManagement } from "@/components/rules-management"
-import { AlertsNotifications } from "@/components/alerts-notifications"
-import { TransactionHistory } from "@/components/transaction-history"
-import { Settings } from "@/components/settings"
-import { Navigation } from "@/components/navigation"
-import { ErrorBoundary } from "@/components/error-boundary"
+import { useEffect } from 'react';
+import { useRouter } from 'next/navigation';
+
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
 
 export default function HomePage() {
-  const [currentPage, setCurrentPage] = useState("dashboard")
+  const router = useRouter();
 
-  const renderCurrentPage = () => {
-    switch (currentPage) {
-      case "dashboard":
-        return (
-          <ErrorBoundary>
-            <PortfolioDashboard />
-          </ErrorBoundary>
-        )
-      case "rules":
-        return (
-          <ErrorBoundary>
-            <RulesManagement />
-          </ErrorBoundary>
-        )
-      case "alerts":
-        return (
-          <ErrorBoundary>
-            <AlertsNotifications />
-          </ErrorBoundary>
-        )
-      case "history":
-        return (
-          <ErrorBoundary>
-            <TransactionHistory />
-          </ErrorBoundary>
-        )
-      case "settings":
-        return (
-          <ErrorBoundary>
-            <Settings />
-          </ErrorBoundary>
-        )
-      default:
-        return (
-          <ErrorBoundary>
-            <PortfolioDashboard />
-          </ErrorBoundary>
-        )
-    }
-  }
+  useEffect(() => {
+    const handleRedirect = async () => {
+      const token = localStorage.getItem('authToken');
+      
+      // If no token, redirect to login
+      if (!token) {
+        router.push('/login');
+        return;
+      }
 
+      // Verify token is valid
+      try {
+        const payload = JSON.parse(atob(token.split('.')[1]));
+        const isExpired = payload.exp * 1000 < Date.now();
+        
+        if (isExpired) {
+          localStorage.removeItem('authToken');
+          router.push('/login');
+          return;
+        }
+
+        // Check if user has wallets
+        const walletsResponse = await fetch(`${API_BASE_URL}/api/wallets`, {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+        });
+        
+        if (walletsResponse.ok) {
+          const wallets = await walletsResponse.json();
+          if (wallets.length > 0) {
+            router.push('/dashboard');
+          } else {
+            router.push('/onboarding');
+          }
+        } else if (walletsResponse.status === 401) {
+          localStorage.removeItem('authToken');
+          router.push('/login');
+        } else {
+          // If we can't check wallets, go to onboarding to be safe
+          router.push('/onboarding');
+        }
+      } catch (error) {
+        console.error('Error checking authentication:', error);
+        localStorage.removeItem('authToken');
+        router.push('/login');
+      }
+    };
+
+    handleRedirect();
+  }, [router]);
+
+  // Show loading spinner while redirecting
   return (
-    <ErrorBoundary>
-      <main className="min-h-screen bg-background">
-        <div className="container mx-auto p-6">
-          <Navigation currentPage={currentPage} onPageChange={setCurrentPage} />
-        </div>
-        {renderCurrentPage()}
-      </main>
-    </ErrorBoundary>
-  )
+    <div className="min-h-screen flex items-center justify-center bg-gray-50">
+      <div className="text-center">
+        <div className="animate-spin rounded-full h-32 w-32 border-b-2 border-gray-900 mx-auto"></div>
+        <p className="mt-4 text-gray-600">Loading DegenGuard...</p>
+      </div>
+    </div>
+  );
 }
