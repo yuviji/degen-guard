@@ -63,41 +63,26 @@ async function apiRequest<T>(endpoint: string, options: RequestInit = {}): Promi
 
 // Portfolio API
 export const portfolioApi = {
-  getOverview: () => {
-    const userId = getUserIdFromToken();
-    if (!userId) throw new Error('User not authenticated');
-    return apiRequest<PortfolioMetrics>(`/api/portfolio/overview?userId=${userId}`);
-  },
+  getOverview: () => 
+    apiRequest<PortfolioMetrics>('/api/portfolio/overview'),
   
-  getHistory: (days: number = 7) => {
-    const userId = getUserIdFromToken();
-    if (!userId) throw new Error('User not authenticated');
-    return apiRequest<Array<{ timestamp: string; total_value: number }>>(`/api/portfolio/history?userId=${userId}&days=${days}`);
-  },
+  getHistory: (days: number = 7) => 
+    apiRequest<Array<{ timestamp: string; total_value: number }>>(`/api/portfolio/history?days=${days}`),
   
-  getTransactions: (limit: number = 50) => {
-    const userId = getUserIdFromToken();
-    if (!userId) throw new Error('User not authenticated');
-    return apiRequest<Array<any>>(`/api/portfolio/transactions?userId=${userId}&limit=${limit}`);
-  },
+  getTransactions: (limit: number = 50) => 
+    apiRequest<Array<any>>(`/api/portfolio/transactions?limit=${limit}`),
 };
 
 // Wallets API
 export const walletsApi = {
-  getAll: () => {
-    const userId = getUserIdFromToken();
-    if (!userId) throw new Error('User not authenticated');
-    return apiRequest<Array<Wallet>>(`/api/wallets?userId=${userId}`);
-  },
+  getAll: () => 
+    apiRequest<Array<Wallet>>('/api/wallets'),
   
-  add: (address: string, chain: string, label?: string) => {
-    const userId = getUserIdFromToken();
-    if (!userId) throw new Error('User not authenticated');
-    return apiRequest<Wallet>('/api/wallets', {
+  add: (address: string, chain: string, label?: string) =>
+    apiRequest<Wallet>('/api/wallets', {
       method: 'POST',
-      body: JSON.stringify({ userId, address, chain, label }),
-    });
-  },
+      body: JSON.stringify({ address, chain, label }),
+    }),
   
   getBalances: (walletId: string) =>
     apiRequest<Array<any>>(`/api/wallets/${walletId}/balances`),
@@ -111,29 +96,20 @@ export const walletsApi = {
 
 // Rules API
 export const rulesApi = {
-  getAll: () => {
-    const userId = getUserIdFromToken();
-    if (!userId) throw new Error('User not authenticated');
-    return apiRequest<Array<Rule>>(`/api/rules?userId=${userId}`);
-  },
+  getAll: () => 
+    apiRequest<Array<Rule>>('/api/rules'),
   
-  createFromLanguage: (naturalLanguage: string, name?: string) => {
-    const userId = getUserIdFromToken();
-    if (!userId) throw new Error('User not authenticated');
-    return apiRequest<Rule>('/api/rules/from-language', {
+  createFromLanguage: (naturalLanguage: string, name?: string) =>
+    apiRequest<Rule>('/api/rules/from-language', {
       method: 'POST',
-      body: JSON.stringify({ userId, naturalLanguage, name }),
-    });
-  },
+      body: JSON.stringify({ naturalLanguage, name }),
+    }),
   
-  create: (name: string, description: string, ruleJson: RuleDefinition) => {
-    const userId = getUserIdFromToken();
-    if (!userId) throw new Error('User not authenticated');
-    return apiRequest<Rule>('/api/rules', {
+  create: (name: string, description: string, ruleJson: RuleDefinition) =>
+    apiRequest<Rule>('/api/rules', {
       method: 'POST',
-      body: JSON.stringify({ userId, name, description, ruleJson }),
-    });
-  },
+      body: JSON.stringify({ name, description, ruleJson }),
+    }),
   
   updateStatus: (ruleId: string, isActive: boolean) =>
     apiRequest<Rule>(`/api/rules/${ruleId}/status`, {
@@ -154,42 +130,33 @@ export const rulesApi = {
 // Alerts API
 export const alertsApi = {
   getAll: (acknowledged?: boolean) => {
-    const userId = getUserIdFromToken();
-    if (!userId) throw new Error('User not authenticated');
     const params = new URLSearchParams();
-    params.append('userId', userId);
     if (acknowledged !== undefined) {
       params.append('acknowledged', acknowledged.toString());
     }
     const queryString = params.toString();
-    return apiRequest<Array<Alert>>(`/api/alerts?${queryString}`);
+    return apiRequest<Array<Alert>>(`/api/alerts${queryString ? `?${queryString}` : ''}`);
   },
   
   acknowledge: (alertId: string) =>
     apiRequest<Alert>(`/api/alerts/${alertId}/acknowledge`, { method: 'PATCH' }),
   
-  acknowledgeAll: () => {
-    const userId = getUserIdFromToken();
-    if (!userId) throw new Error('User not authenticated');
-    return apiRequest<{ acknowledged_count: number }>('/api/alerts/acknowledge-all', {
+  acknowledgeAll: () =>
+    apiRequest<{ acknowledged_count: number }>('/api/alerts/acknowledge-all', {
       method: 'PATCH',
-      body: JSON.stringify({ userId }),
-    });
-  },
+      body: JSON.stringify({}),
+    }),
   
   delete: (alertId: string) =>
     apiRequest<{ message: string }>(`/api/alerts/${alertId}`, { method: 'DELETE' }),
   
-  getStats: () => {
-    const userId = getUserIdFromToken();
-    if (!userId) throw new Error('User not authenticated');
-    return apiRequest<{
+  getStats: () =>
+    apiRequest<{
       total_alerts: number;
       unacknowledged_alerts: number;
       high_severity_alerts: number;
       alerts_last_24h: number;
-    }>(`/api/alerts/stats?userId=${userId}`);
-  },
+    }>('/api/alerts/stats'),
 };
 
 // Health check

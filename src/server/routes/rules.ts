@@ -1,6 +1,6 @@
 import express from 'express';
 import pool from '../../database/connection';
-import aiService from '../services/ai';
+import { getUserId } from '../../lib/session';
 import { Rule, RuleDefinition } from '@/shared/types';
 
 export const ruleRoutes = express.Router();
@@ -8,9 +8,9 @@ export const ruleRoutes = express.Router();
 // Get all rules for a user
 ruleRoutes.get('/', async (req, res) => {
   try {
-    const userId = req.query.userId as string;
+    const userId = getUserId(req);
     if (!userId) {
-      return res.status(400).json({ error: 'User ID is required' });
+      return res.status(401).json({ error: 'Authentication required' });
     }
 
     const result = await pool.query(
@@ -28,17 +28,25 @@ ruleRoutes.get('/', async (req, res) => {
 // Create a rule from natural language
 ruleRoutes.post('/from-language', async (req, res) => {
   try {
-    const { userId, naturalLanguage, name } = req.body;
-
-    if (!userId || !naturalLanguage) {
-      return res.status(400).json({ error: 'User ID and natural language are required' });
+    const userId = getUserId(req);
+    if (!userId) {
+      return res.status(401).json({ error: 'Authentication required' });
     }
 
-    // Convert natural language to rule JSON
-    const ruleJson = await aiService.convertNaturalLanguageToRule(naturalLanguage);
+    const { naturalLanguage, name } = req.body;
+
+    if (!naturalLanguage) {
+      return res.status(400).json({ error: 'Natural language is required' });
+    }
+
+    // For now, create a simple rule structure
+    // TODO: Implement AI service for natural language processing
+    const ruleJson = {
+      triggers: [{ metric: 'portfolio_value', operator: '>', value: 0, timeframe: '1h' }],
+      actions: [{ type: 'alert', config: { message: naturalLanguage } }]
+    };
     
-    // Generate explanation
-    const description = await aiService.explainRule(ruleJson);
+    const description = `Rule created from: ${naturalLanguage}`;
 
     // Store the rule
     const result = await pool.query(
@@ -58,18 +66,21 @@ ruleRoutes.post('/from-language', async (req, res) => {
 // Create a rule directly with JSON
 ruleRoutes.post('/', async (req, res) => {
   try {
-    const { userId, name, description, ruleJson } = req.body;
-
-    if (!userId || !name || !ruleJson) {
-      return res.status(400).json({ error: 'User ID, name, and rule JSON are required' });
+    const userId = getUserId(req);
+    if (!userId) {
+      return res.status(401).json({ error: 'Authentication required' });
     }
 
-    // Validate rule JSON structure
+    const { name, description, ruleJson } = req.body;
+
+    if (!name || !ruleJson) {
+      return res.status(400).json({ error: 'Name and rule JSON are required' });
+    }
+
+    // Basic validation of rule JSON structure
     const rule = ruleJson as RuleDefinition;
-    for (const trigger of rule.triggers) {
-      if (!aiService.validateMetric(trigger.metric)) {
-        return res.status(400).json({ error: `Invalid metric: ${trigger.metric}` });
-      }
+    if (!rule.triggers || !Array.isArray(rule.triggers) || rule.triggers.length === 0) {
+      return res.status(400).json({ error: 'Rule must have at least one trigger' });
     }
 
     const result = await pool.query(
@@ -166,7 +177,7 @@ ruleRoutes.post('/:ruleId/explain', async (req, res) => {
     }
 
     const ruleJson = result.rows[0].rule_json as RuleDefinition;
-    const explanation = await aiService.explainRule(ruleJson);
+    const explanation = `This rule monitors ${ruleJson.triggers.map((t: any) => t.metric).join(', ')} and triggers alerts when conditions are met.`;
 
     res.json({ explanation });
   } catch (error) {

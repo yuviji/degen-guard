@@ -2,15 +2,16 @@ import express from 'express';
 import pool from '../../database/connection';
 import cdpService from '../services/cdp';
 import { Wallet } from '@/shared/types';
+import { getUserId } from '../../lib/session';
 
 export const walletRoutes = express.Router();
 
 // Get all wallets for a user
 walletRoutes.get('/', async (req, res) => {
   try {
-    const userId = req.query.userId as string;
+    const userId = getUserId(req);
     if (!userId) {
-      return res.status(400).json({ error: 'User ID is required' });
+      return res.status(401).json({ error: 'Authentication required' });
     }
 
     const result = await pool.query(
@@ -28,10 +29,15 @@ walletRoutes.get('/', async (req, res) => {
 // Add a new wallet
 walletRoutes.post('/', async (req, res) => {
   try {
-    const { userId, address, chain, label } = req.body;
+    const userId = getUserId(req);
+    if (!userId) {
+      return res.status(401).json({ error: 'Authentication required' });
+    }
 
-    if (!userId || !address || !chain) {
-      return res.status(400).json({ error: 'User ID, address, and chain are required' });
+    const { address, chain, label } = req.body;
+
+    if (!address || !chain) {
+      return res.status(400).json({ error: 'Address and chain are required' });
     }
 
     // Validate address format

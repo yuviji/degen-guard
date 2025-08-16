@@ -1,15 +1,16 @@
 import express from 'express';
 import pool from '../../database/connection';
 import { PortfolioMetrics } from '@/shared/types';
+import { getUserId } from '../../lib/session';
 
 export const portfolioRoutes = express.Router();
 
 // Get portfolio overview for a user
 portfolioRoutes.get('/overview', async (req, res) => {
   try {
-    const userId = req.query.userId as string;
+    const userId = getUserId(req);
     if (!userId) {
-      return res.status(400).json({ error: 'User ID is required' });
+      return res.status(401).json({ error: 'Authentication required' });
     }
 
     // Get total portfolio value
@@ -98,12 +99,12 @@ portfolioRoutes.get('/overview', async (req, res) => {
 // Get portfolio history
 portfolioRoutes.get('/history', async (req, res) => {
   try {
-    const userId = req.query.userId as string;
-    const days = parseInt(req.query.days as string) || 7;
-
+    const userId = getUserId(req);
     if (!userId) {
-      return res.status(400).json({ error: 'User ID is required' });
+      return res.status(401).json({ error: 'Authentication required' });
     }
+    
+    const days = parseInt(req.query.days as string) || 7;
 
     const result = await pool.query(`
       SELECT 
@@ -127,12 +128,12 @@ portfolioRoutes.get('/history', async (req, res) => {
 // Get recent transactions across all wallets
 portfolioRoutes.get('/transactions', async (req, res) => {
   try {
-    const userId = req.query.userId as string;
-    const limit = parseInt(req.query.limit as string) || 50;
-
+    const userId = getUserId(req);
     if (!userId) {
-      return res.status(400).json({ error: 'User ID is required' });
+      return res.status(401).json({ error: 'Authentication required' });
     }
+    
+    const limit = parseInt(req.query.limit as string) || 50;
 
     const result = await pool.query(`
       SELECT 

@@ -1,5 +1,6 @@
 import express from 'express';
 import pool from '../../database/connection';
+import { getUserId } from '../../lib/session';
 import { Alert } from '@/shared/types';
 
 export const alertRoutes = express.Router();
@@ -7,12 +8,12 @@ export const alertRoutes = express.Router();
 // Get all alerts for a user
 alertRoutes.get('/', async (req, res) => {
   try {
-    const userId = req.query.userId as string;
-    const acknowledged = req.query.acknowledged as string;
-    
+    const userId = getUserId(req);
     if (!userId) {
-      return res.status(400).json({ error: 'User ID is required' });
+      return res.status(401).json({ error: 'Authentication required' });
     }
+    
+    const acknowledged = req.query.acknowledged as string;
 
     let query = `
       SELECT 
@@ -65,10 +66,9 @@ alertRoutes.patch('/:alertId/acknowledge', async (req, res) => {
 // Acknowledge all alerts for a user
 alertRoutes.patch('/acknowledge-all', async (req, res) => {
   try {
-    const { userId } = req.body;
-
+    const userId = getUserId(req);
     if (!userId) {
-      return res.status(400).json({ error: 'User ID is required' });
+      return res.status(401).json({ error: 'Authentication required' });
     }
 
     const result = await pool.query(
@@ -107,10 +107,9 @@ alertRoutes.delete('/:alertId', async (req, res) => {
 // Get alert statistics
 alertRoutes.get('/stats', async (req, res) => {
   try {
-    const userId = req.query.userId as string;
-    
+    const userId = getUserId(req);
     if (!userId) {
-      return res.status(400).json({ error: 'User ID is required' });
+      return res.status(401).json({ error: 'Authentication required' });
     }
 
     const result = await pool.query(`
