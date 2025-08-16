@@ -6,7 +6,7 @@ export interface User {
   updated_at: Date;
 }
 
-export interface Wallet {
+export interface Account {
   id: string;
   user_id: string;
   address: string;
@@ -151,4 +151,52 @@ export interface CDPPrice {
   amount: string;
   currency: string;
   base: string;
+}
+
+// CDP Funding Types
+export interface FundingQuote {
+  id: string;
+  amount_usd: string;
+  asset: string;
+  network: string;
+  estimated_amount: string;
+  fees: {
+    coinbase_fee: string;
+    network_fee: string;
+    total_fee: string;
+  };
+  expires_at: string;
+}
+
+export interface FundingOperation {
+  id: string;
+  user_id: string;
+  address: string;
+  amount_usd: number;
+  asset: string;
+  network: string;
+  status: 'pending' | 'processing' | 'completed' | 'failed';
+  cdp_operation_id?: string;
+  quote_id?: string;
+  payment_method_id?: string;
+  error_message?: string;
+  created_at: Date;
+  completed_at?: Date;
+}
+
+export interface FundingStatus {
+  has_account: boolean;
+  is_funded: boolean;
+  needs_funding: boolean;
+  account?: {
+    address: string;
+    status: string;
+    first_funded_at?: Date;
+  };
+  recent_funding?: Array<{
+    status: string;
+    amount_usd: number;
+    asset: string;
+    created_at: Date;
+  }>;
 }

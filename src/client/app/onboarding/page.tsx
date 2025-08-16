@@ -3,30 +3,50 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Label } from '@/components/ui/label';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { AuthGuard } from '@/components/auth-guard';
+import { FundingFlow } from '@/components/funding-flow';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
 
 export default function OnboardingPage() {
-  const [step, setStep] = useState(1);
-  const [walletAddress, setWalletAddress] = useState('');
-  const [walletLabel, setWalletLabel] = useState('');
-  const [chain, setChain] = useState('ethereum');
+  const [step, setStep] = useState<'account' | 'funding' | 'complete'>('account');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [hasWallets, setHasWallets] = useState(false);
+  const [hasAccount, setHasAccount] = useState(false);
+  const [accountAddress, setAccountAddress] = useState('');
   const router = useRouter();
 
+  const checkFundingStatus = async () => {
+    try {
+      const token = localStorage.getItem('authToken');
+      const response = await fetch(`${API_BASE_URL}/api/funding/status`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        if (data.is_funded) {
+          router.push('/dashboard');
+        } else if (data.has_account) {
+          setStep('funding');
+        }
+      }
+    } catch (err) {
+      console.error('Error checking funding status:', err);
+    }
+  };
+
   useEffect(() => {
-    // Check if user already has wallets
-    const checkWallets = async () => {
+    // Check if user already has a CDP account
+    const checkAccount = async () => {
       try {
         const token = localStorage.getItem('authToken');
-        const response = await fetch(`${API_BASE_URL}/api/wallets`, {
+        const response = await fetch(`${API_BASE_URL}/api/cdp/me`, {
           headers: {
             'Authorization': `Bearer ${token}`,
             'Content-Type': 'application/json',
@@ -34,56 +54,47 @@ export default function OnboardingPage() {
         });
 
         if (response.ok) {
-          const wallets = await response.json();
-          if (wallets.length > 0) {
-            setHasWallets(true);
-            router.push('/dashboard');
+          const data = await response.json();
+          if (data.exists && data.server) {
+            setHasAccount(true);
+            setAccountAddress(data.server.address);
+            // Check funding status
+            checkFundingStatus();
           }
         }
       } catch (err) {
-        console.error('Error checking wallets:', err);
+        console.error('Error checking account:', err);
       }
     };
 
-    checkWallets();
+    checkAccount();
   }, [router]);
 
-  const handleAddWallet = async (e: React.FormEvent) => {
+  const handleProvisionAccount = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     setError('');
 
     try {
       const token = localStorage.getItem('authToken');
-      const response = await fetch(`${API_BASE_URL}/api/wallets`, {
+      const response = await fetch(`${API_BASE_URL}/api/cdp/provision`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-          address: walletAddress,
-          chain,
-          label: walletLabel || 'My Wallet',
-        }),
       });
 
       const data = await response.json();
 
       if (!response.ok) {
-        throw new Error(data.error || 'Failed to add wallet');
+        throw new Error(data.error || 'Failed to provision account');
       }
 
-      // Success - move to next step or dashboard
-      if (step === 1) {
-        setStep(2);
-      } else {
-        router.push('/dashboard');
-      }
-      
-      // Reset form
-      setWalletAddress('');
-      setWalletLabel('');
+      // Success - move to funding step
+      setAccountAddress(data.address);
+      setHasAccount(true);
+      setStep('funding');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'An error occurred');
     } finally {
@@ -91,15 +102,15 @@ export default function OnboardingPage() {
     }
   };
 
-  const skipToNext = () => {
-    if (step === 1) {
-      setStep(2);
-    } else {
+  const handleFundingComplete = () => {
+    setStep('complete');
+    // Redirect to dashboard after a short delay
+    setTimeout(() => {
       router.push('/dashboard');
-    }
+    }, 2000);
   };
 
-  if (hasWallets) {
+  if (hasAccount && step === 'account') {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="animate-spin rounded-full h-32 w-32 border-b-2 border-gray-900"></div>
@@ -110,113 +121,73 @@ export default function OnboardingPage() {
   return (
     <AuthGuard>
       <div className="min-h-screen flex items-center justify-center bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
-        <Card className="w-full max-w-md">
-          <CardHeader className="space-y-1">
-            <CardTitle className="text-2xl font-bold text-center">
-              {step === 1 ? 'Welcome to DegenGuard!' : 'Add More Wallets'}
-            </CardTitle>
-            <CardDescription className="text-center">
-              {step === 1 
-                ? 'Let\'s start by adding your first wallet to monitor'
-                : 'Add additional wallets to get a complete view of your portfolio'
-              }
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <form onSubmit={handleAddWallet} className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="address">Wallet Address</Label>
-                <Input
-                  id="address"
-                  type="text"
-                  placeholder="0x..."
-                  value={walletAddress}
-                  onChange={(e) => setWalletAddress(e.target.value)}
-                  required
-                />
-              </div>
-              
-              <div className="space-y-2">
-                <Label htmlFor="label">Wallet Label (Optional)</Label>
-                <Input
-                  id="label"
-                  type="text"
-                  placeholder="My Main Wallet"
-                  value={walletLabel}
-                  onChange={(e) => setWalletLabel(e.target.value)}
-                />
-              </div>
+        {step === 'account' && (
+          <Card className="w-full max-w-md">
+            <CardHeader className="space-y-1">
+              <CardTitle className="text-2xl font-bold text-center">
+                Welcome to DegenGuard!
+              </CardTitle>
+              <CardDescription className="text-center">
+                Let's create your secure account to start monitoring your portfolio
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <form onSubmit={handleProvisionAccount} className="space-y-4">
+                <div className="space-y-4 text-center">
+                  <div className="bg-blue-50 p-4 rounded-lg">
+                    <h3 className="font-semibold text-blue-900 mb-2">Secure Account Creation</h3>
+                    <p className="text-sm text-blue-700">
+                      We'll create a secure server-managed account for you using Coinbase Developer Platform. 
+                      This account will be used to monitor and analyze your portfolio safely.
+                    </p>
+                  </div>
+                </div>
+                
+                {error && (
+                  <Alert variant="destructive">
+                    <AlertDescription>{error}</AlertDescription>
+                  </Alert>
+                )}
 
-              <div className="space-y-2">
-                <Label htmlFor="chain">Blockchain</Label>
-                <select
-                  id="chain"
-                  value={chain}
-                  onChange={(e) => setChain(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                >
-                  <option value="ethereum">Ethereum</option>
-                  <option value="polygon">Polygon</option>
-                  <option value="arbitrum">Arbitrum</option>
-                  <option value="optimism">Optimism</option>
-                  <option value="base">Base</option>
-                </select>
-              </div>
-              
-              {error && (
-                <Alert variant="destructive">
-                  <AlertDescription>{error}</AlertDescription>
-                </Alert>
-              )}
-
-              <div className="flex space-x-2">
                 <Button 
                   type="submit" 
-                  className="flex-1" 
+                  className="w-full" 
                   disabled={loading}
                 >
-                  {loading ? 'Adding...' : 'Add Wallet'}
+                  {loading ? 'Creating Account...' : 'Create Secure Account'}
                 </Button>
-                
-                {step === 2 && (
-                  <Button 
-                    type="button" 
-                    variant="outline" 
-                    onClick={skipToNext}
-                    disabled={loading}
-                  >
-                    Skip
-                  </Button>
-                )}
-              </div>
-            </form>
+              </form>
+            </CardContent>
+          </Card>
+        )}
 
-            {step === 1 && (
-              <div className="mt-6 text-center">
-                <button
-                  type="button"
-                  onClick={skipToNext}
-                  className="text-sm text-gray-600 hover:text-gray-500"
-                >
-                  Skip for now
-                </button>
-              </div>
-            )}
+        {step === 'funding' && (
+          <div className="w-full max-w-md">
+            <div className="text-center mb-6">
+              <h1 className="text-2xl font-bold text-gray-900">Fund Your Account</h1>
+              <p className="text-gray-600 mt-2">
+                Add crypto to your account using your Coinbase balance or debit card
+              </p>
+            </div>
+            <FundingFlow onFundingComplete={handleFundingComplete} showTitle={false} />
+          </div>
+        )}
 
-            {step === 2 && (
-              <div className="mt-6 text-center">
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => router.push('/dashboard')}
-                  className="w-full"
-                >
-                  Continue to Dashboard
-                </Button>
-              </div>
-            )}
-          </CardContent>
-        </Card>
+        {step === 'complete' && (
+          <Card className="w-full max-w-md">
+            <CardHeader className="space-y-1">
+              <CardTitle className="text-2xl font-bold text-center text-green-600">
+                Setup Complete!
+              </CardTitle>
+              <CardDescription className="text-center">
+                Your account has been created and funded. Redirecting to dashboard...
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="text-center">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-green-600 mx-auto"></div>
+            </CardContent>
+          </Card>
+        )}
       </div>
     </AuthGuard>
   );

@@ -73,26 +73,29 @@ export const portfolioApi = {
     apiRequest<Array<any>>(`/api/portfolio/transactions?limit=${limit}`),
 };
 
-// Wallets API
-export const walletsApi = {
+// Accounts API (EVM Accounts)
+export const accountsApi = {
   getAll: () => 
-    apiRequest<Array<Wallet>>('/api/wallets'),
+    apiRequest<Array<Account>>('/api/accounts'),
   
-  add: (address: string, chain: string, label?: string) =>
-    apiRequest<Wallet>('/api/wallets', {
+  create: (address?: string, chain?: string, label?: string) =>
+    apiRequest<Account>('/api/accounts', {
       method: 'POST',
       body: JSON.stringify({ address, chain, label }),
     }),
   
   getBalances: (address: string) =>
-    apiRequest<Array<any>>(`/api/wallets/${address}/balances`),
+    apiRequest<Array<any>>(`/api/accounts/${address}/balances`),
   
   getTransactions: (address: string, limit: number = 50) =>
-    apiRequest<Array<any>>(`/api/wallets/${address}/transactions?limit=${limit}`),
+    apiRequest<Array<any>>(`/api/accounts/${address}/transactions?limit=${limit}`),
   
   delete: (address: string) =>
-    apiRequest<{ message: string }>(`/api/wallets/${address}`, { method: 'DELETE' }),
+    apiRequest<{ message: string }>(`/api/accounts/${address}`, { method: 'DELETE' }),
 };
+
+// Legacy alias for backward compatibility
+export const walletsApi = accountsApi;
 
 // Rules API
 export const rulesApi = {
@@ -177,7 +180,7 @@ export interface PortfolioMetrics {
   }>;
 }
 
-export interface Wallet {
+export interface Account {
   id: string;
   user_id: string;
   address: string;
@@ -186,6 +189,9 @@ export interface Wallet {
   created_at: string;
   updated_at: string;
 }
+
+// Legacy alias for backward compatibility
+export interface Wallet extends Account {}
 
 export interface Rule {
   id: string;

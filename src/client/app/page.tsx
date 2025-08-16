@@ -29,26 +29,26 @@ export default function HomePage() {
           return;
         }
 
-        // Check if user has wallets
-        const walletsResponse = await fetch(`${API_BASE_URL}/api/wallets`, {
+        // Check if user has a CDP account
+        const accountResponse = await fetch(`${API_BASE_URL}/api/cdp/me`, {
           headers: {
             'Authorization': `Bearer ${token}`,
             'Content-Type': 'application/json',
           },
         });
         
-        if (walletsResponse.ok) {
-          const wallets = await walletsResponse.json();
-          if (wallets.length > 0) {
+        if (accountResponse.ok) {
+          const data = await accountResponse.json();
+          if (data.exists && data.server) {
             router.push('/dashboard');
           } else {
             router.push('/onboarding');
           }
-        } else if (walletsResponse.status === 401) {
+        } else if (accountResponse.status === 401) {
           localStorage.removeItem('authToken');
           router.push('/login');
         } else {
-          // If we can't check wallets, go to onboarding to be safe
+          // If we can't check account, go to onboarding to be safe
           router.push('/onboarding');
         }
       } catch (error) {

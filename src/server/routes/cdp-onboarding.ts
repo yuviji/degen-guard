@@ -5,14 +5,14 @@ import { requireAuth, getUserId } from '../../lib/session';
 
 export const cdpOnboardingRoutes = express.Router();
 
-// Provision a new server wallet for the user
+// Provision a new server account for the user
 cdpOnboardingRoutes.post('/provision', async (req, res) => {
   try {
     const userId = requireAuth(req);
 
-    // Check if user already has a server wallet
+    // Check if user already has a server account
     const existing = await db.query(
-      `SELECT address FROM user_wallets WHERE user_id = $1 AND type = 'server'`,
+      `SELECT address FROM user_accounts WHERE user_id = $1 AND type = 'server'`,
       [userId]
     );
 
@@ -21,12 +21,12 @@ cdpOnboardingRoutes.post('/provision', async (req, res) => {
     }
 
     // Create a new EVM account using CDP SDK
-    const account = await cdp.evm.createAccount({ name: `wallet-${Date.now()}` });
+    const account = await cdp.evm.createAccount({ name: `account-${Date.now()}` });
     const addressString = account.address.toLowerCase();
 
     // Store in database
     await db.query(
-      `INSERT INTO user_wallets(user_id, type, cdp_wallet_id, address, chain, status)
+      `INSERT INTO user_accounts(user_id, type, cdp_account_id, address, chain, status)
        VALUES ($1, 'server', $2, $3, $4, 'provisioned')
        ON CONFLICT (user_id, type) DO NOTHING`,
       [userId, null, addressString, 'base']
@@ -34,12 +34,12 @@ cdpOnboardingRoutes.post('/provision', async (req, res) => {
 
     res.json({ address: addressString });
   } catch (error) {
-    console.error('Error provisioning wallet:', error);
-    res.status(500).json({ error: 'Failed to provision wallet' });
+    console.error('Error provisioning account:', error);
+    res.status(500).json({ error: 'Failed to provision account' });
   }
 });
 
-// Get current user's server wallet
+// Get current user's server account
 cdpOnboardingRoutes.get('/me', async (req, res) => {
   try {
     const userId = getUserId(req);
@@ -49,7 +49,7 @@ cdpOnboardingRoutes.get('/me', async (req, res) => {
 
     const { rows } = await db.query(
       `SELECT address, status
-       FROM user_wallets
+       FROM user_accounts
        WHERE user_id = $1 AND type = 'server'
        ORDER BY created_at DESC LIMIT 1`,
       [userId]
@@ -61,12 +61,12 @@ cdpOnboardingRoutes.get('/me', async (req, res) => {
 
     res.json({ exists: true, server: rows[0] });
   } catch (error) {
-    console.error('Error fetching user wallet:', error);
-    res.status(500).json({ error: 'Failed to fetch wallet' });
+    console.error('Error fetching user account:', error);
+    res.status(500).json({ error: 'Failed to fetch account' });
   }
 });
 
-// Check funding status for a wallet address
+// Check funding status for an account address
 cdpOnboardingRoutes.get('/:address/funding-status', async (req, res) => {
   try {
     const address = req.params.address.toLowerCase();
@@ -78,17 +78,17 @@ cdpOnboardingRoutes.get('/:address/funding-status', async (req, res) => {
     const nativeWei = native ? BigInt(native.amount?.amount ?? "0") : BigInt(0);
     const funded = nativeWei >= MIN_WEI;
 
-    // Update wallet status
+    // Update account status
     if (funded) {
       await db.query(
-        `UPDATE user_wallets
+        `UPDATE user_accounts
          SET status = 'active', first_funded_at = COALESCE(first_funded_at, NOW())
          WHERE address = $1`,
         [address]
       );
     } else {
       await db.query(
-        `UPDATE user_wallets
+        `UPDATE user_accounts
          SET status = CASE WHEN status = 'provisioned' THEN 'funding' ELSE status END
          WHERE address = $1`,
         [address]
@@ -105,7 +105,7 @@ cdpOnboardingRoutes.get('/:address/funding-status', async (req, res) => {
     };
 
     await db.query(
-      `INSERT INTO wallet_balances(address, payload) VALUES ($1, $2)`,
+      `INSERT INTO account_balances(address, payload) VALUES ($1, $2)`,
       [address, JSON.stringify(balanceData)]
     );
 
@@ -124,21 +124,21 @@ cdpOnboardingRoutes.get('/dashboard', async (req, res) => {
       return res.status(401).json({ error: 'unauthorized' });
     }
 
-    // Get user's active wallet
-    const { rows: walletRows } = await db.query(
-      `SELECT address FROM user_wallets WHERE user_id = $1 AND status = 'active' LIMIT 1`,
+    // Get user's active account
+    const { rows: accountRows } = await db.query(
+      `SELECT address FROM user_accounts WHERE user_id = $1 AND status = 'active' LIMIT 1`,
       [userId]
     );
 
-    if (!walletRows.length) {
+    if (!accountRows.length) {
       return res.json({ ready: false });
     }
 
-    const address = walletRows[0].address;
+    const address = accountRows[0].address;
 
     // Get latest balance snapshot
     const { rows: balanceRows } = await db.query(
-      `SELECT payload FROM wallet_balances WHERE address = $1 ORDER BY as_of DESC LIMIT 1`,
+      `SELECT payload FROM account_balances WHERE address = $1 ORDER BY as_of DESC LIMIT 1`,
       [address]
     );
 

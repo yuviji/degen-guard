@@ -1,10 +1,10 @@
 import { useState, useEffect } from 'react';
 
-interface Wallet {
+interface Account {
   id: string;
   user_id: string;
   type: string;
-  cdp_wallet_id?: string;
+  cdp_account_id?: string;
   address: string;
   chain: string;
   status: string;
@@ -12,24 +12,24 @@ interface Wallet {
   created_at: string;
 }
 
-interface UseWalletsResult {
-  wallets: Wallet[];
+interface UseAccountsResult {
+  accounts: Account[];
   loading: boolean;
   error: string | null;
   refetch: () => Promise<void>;
 }
 
-export function useWallets(): UseWalletsResult {
-  const [wallets, setWallets] = useState<Wallet[]>([]);
+export function useAccounts(): UseAccountsResult {
+  const [accounts, setAccounts] = useState<Account[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const fetchWallets = async () => {
+  const fetchAccounts = async () => {
     setLoading(true);
     setError(null);
 
     try {
-      const response = await fetch('/api/wallets', {
+      const response = await fetch('/api/accounts', {
         method: 'GET',
         credentials: 'include',
         headers: {
@@ -41,33 +41,36 @@ export function useWallets(): UseWalletsResult {
         if (response.status === 401) {
           throw new Error('Authentication required');
         } else {
-          throw new Error('Failed to fetch wallets');
+          throw new Error('Failed to fetch accounts');
         }
       }
 
       const data = await response.json();
-      setWallets(data);
+      setAccounts(data);
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Unknown error occurred';
       setError(errorMessage);
-      console.error('Error fetching wallets:', err);
+      console.error('Error fetching accounts:', err);
     } finally {
       setLoading(false);
     }
   };
 
   const refetch = async () => {
-    await fetchWallets();
+    await fetchAccounts();
   };
 
   useEffect(() => {
-    fetchWallets();
+    fetchAccounts();
   }, []);
 
   return {
-    wallets,
+    accounts,
     loading,
     error,
     refetch
   };
 }
+
+// Legacy alias for backward compatibility
+export const useWallets = useAccounts;

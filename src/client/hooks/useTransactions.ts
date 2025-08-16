@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 
 interface Transaction {
   id: string;
-  walletId: string;
+  accountId: string;
   transactionHash: string;
   blockNumber: number;
   eventType: "transfer" | "swap" | "deposit" | "withdrawal";
@@ -16,9 +16,9 @@ interface Transaction {
   gasUsed: string;
   gasFee: string;
   timestamp: Date;
-  walletAddress: string;
+  accountAddress: string;
   chain: "ethereum" | "polygon" | "arbitrum" | "optimism" | "base";
-  walletLabel: string;
+  accountLabel: string;
   status: "confirmed" | "pending" | "failed";
 }
 
@@ -29,13 +29,13 @@ interface UseTransactionsResult {
   refetch: () => Promise<void>;
 }
 
-export function useTransactions(walletAddress?: string, limit: number = 50): UseTransactionsResult {
+export function useTransactions(accountAddress?: string, limit: number = 50): UseTransactionsResult {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const fetchTransactions = async (refresh: boolean = false) => {
-    if (!walletAddress) {
+    if (!accountAddress) {
       setTransactions([]);
       return;
     }
@@ -49,7 +49,7 @@ export function useTransactions(walletAddress?: string, limit: number = 50): Use
         ...(refresh && { refresh: 'true' })
       });
 
-      const response = await fetch(`/api/wallets/${walletAddress}/transactions?${params}`, {
+      const response = await fetch(`/api/accounts/${accountAddress}/transactions?${params}`, {
         method: 'GET',
         credentials: 'include',
         headers: {
@@ -61,7 +61,7 @@ export function useTransactions(walletAddress?: string, limit: number = 50): Use
         if (response.status === 401) {
           throw new Error('Authentication required');
         } else if (response.status === 404) {
-          throw new Error('Wallet not found');
+          throw new Error('Account not found');
         } else {
           throw new Error('Failed to fetch transactions');
         }
@@ -91,7 +91,7 @@ export function useTransactions(walletAddress?: string, limit: number = 50): Use
 
   useEffect(() => {
     fetchTransactions();
-  }, [walletAddress, limit]);
+  }, [accountAddress, limit]);
 
   return {
     transactions,

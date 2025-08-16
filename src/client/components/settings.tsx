@@ -20,7 +20,7 @@ import {
 } from "@/components/ui/dialog"
 import {
   SettingsIcon,
-  Wallet,
+  CreditCard,
   Bell,
   Shield,
   User,
@@ -64,7 +64,7 @@ interface UserSettings {
   }
 }
 
-interface ConnectedWallet {
+interface ConnectedAccount {
   id: string
   address: string
   label: string
@@ -74,11 +74,11 @@ interface ConnectedWallet {
   isActive: boolean
 }
 
-const mockWallets: ConnectedWallet[] = [
+const mockAccounts: ConnectedAccount[] = [
   {
     id: "1",
     address: "0x1a2b3c4d5e6f7g8h9i0j1k2l3m4n5o6p7q8r9s0t",
-    label: "Main Wallet",
+    label: "Main Account",
     chain: "ethereum",
     balance: "127,543.82",
     lastSync: new Date(Date.now() - 2 * 60 * 1000),
@@ -87,7 +87,7 @@ const mockWallets: ConnectedWallet[] = [
   {
     id: "2",
     address: "0x2b3c4d5e6f7g8h9i0j1k2l3m4n5o6p7q8r9s0t1u",
-    label: "DeFi Wallet",
+    label: "DeFi Account",
     chain: "ethereum",
     balance: "45,231.67",
     lastSync: new Date(Date.now() - 5 * 60 * 1000),
@@ -96,7 +96,7 @@ const mockWallets: ConnectedWallet[] = [
   {
     id: "3",
     address: "0x3c4d5e6f7g8h9i0j1k2l3m4n5o6p7q8r9s0t1u2v",
-    label: "Polygon Wallet",
+    label: "Polygon Account",
     chain: "polygon",
     balance: "12,890.45",
     lastSync: new Date(Date.now() - 10 * 60 * 1000),
@@ -150,7 +150,7 @@ export function Settings() {
     },
   })
 
-  const [wallets, setWallets] = useState<ConnectedWallet[]>(mockWallets)
+  const [accounts, setAccounts] = useState<ConnectedAccount[]>(mockAccounts)
   const [showDeleteDialog, setShowDeleteDialog] = useState<string | null>(null)
 
   const updateSettings = (section: keyof UserSettings, updates: Partial<UserSettings[keyof UserSettings]>) => {
@@ -164,14 +164,14 @@ export function Settings() {
     navigator.clipboard.writeText(text)
   }
 
-  const toggleWallet = (walletId: string) => {
-    setWallets((prev) =>
-      prev.map((wallet) => (wallet.id === walletId ? { ...wallet, isActive: !wallet.isActive } : wallet)),
+  const toggleAccount = (accountId: string) => {
+    setAccounts((prev) =>
+      prev.map((account) => (account.id === accountId ? { ...account, isActive: !account.isActive } : account)),
     )
   }
 
-  const deleteWallet = (walletId: string) => {
-    setWallets((prev) => prev.filter((wallet) => wallet.id !== walletId))
+  const deleteAccount = (accountId: string) => {
+    setAccounts((prev) => prev.filter((account) => account.id !== accountId))
     setShowDeleteDialog(null)
   }
 
@@ -208,9 +208,9 @@ export function Settings() {
             <User className="h-4 w-4" />
             Profile
           </TabsTrigger>
-          <TabsTrigger value="wallets" className="flex items-center gap-2">
-            <Wallet className="h-4 w-4" />
-            Wallets
+          <TabsTrigger value="accounts" className="flex items-center gap-2">
+            <CreditCard className="h-4 w-4" />
+            Accounts
           </TabsTrigger>
           <TabsTrigger value="notifications" className="flex items-center gap-2">
             <Bell className="h-4 w-4" />
@@ -294,41 +294,41 @@ export function Settings() {
           </Card>
         </TabsContent>
 
-        <TabsContent value="wallets" className="space-y-6">
+        <TabsContent value="accounts" className="space-y-6">
           <Card>
             <CardHeader>
               <div className="flex items-center justify-between">
                 <div>
-                  <CardTitle>Connected Wallets</CardTitle>
-                  <p className="text-sm text-muted-foreground">Manage your connected cryptocurrency wallets</p>
+                  <CardTitle>Connected Accounts</CardTitle>
+                  <p className="text-sm text-muted-foreground">Manage your connected cryptocurrency accounts</p>
                 </div>
                 <Button>
                   <Plus className="mr-2 h-4 w-4" />
-                  Connect Wallet
+                  Connect Account
                 </Button>
               </div>
             </CardHeader>
             <CardContent>
               <div className="space-y-4">
-                {wallets.map((wallet) => (
-                  <div key={wallet.id} className="flex items-center justify-between p-4 border rounded-lg">
+                {accounts.map((account) => (
+                  <div key={account.id} className="flex items-center justify-between p-4 border rounded-lg">
                     <div className="flex items-center gap-4">
                       <div className="flex items-center gap-2">
-                        <Switch checked={wallet.isActive} onCheckedChange={() => toggleWallet(wallet.id)} />
+                        <Switch checked={account.isActive} onCheckedChange={() => toggleAccount(account.id)} />
                         <div>
                           <div className="flex items-center gap-2">
-                            <span className="font-medium">{wallet.label}</span>
+                            <span className="font-medium">{account.label}</span>
                             <Badge variant="outline" className="text-xs">
-                              {wallet.chain}
+                              {account.chain}
                             </Badge>
                           </div>
                           <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                            <span className="font-mono">{truncateAddress(wallet.address)}</span>
+                            <span className="font-mono">{truncateAddress(account.address)}</span>
                             <Button
                               variant="ghost"
                               size="sm"
                               className="h-4 w-4 p-0"
-                              onClick={() => copyToClipboard(wallet.address)}
+                              onClick={() => copyToClipboard(account.address)}
                             >
                               <Copy className="h-3 w-3" />
                             </Button>
@@ -336,20 +336,20 @@ export function Settings() {
                         </div>
                       </div>
                       <div className="text-right">
-                        <div className="font-semibold">${wallet.balance}</div>
-                        <div className="text-xs text-muted-foreground">Last sync: {formatTimeAgo(wallet.lastSync)}</div>
+                        <div className="font-semibold">${account.balance}</div>
+                        <div className="text-xs text-muted-foreground">Last sync: {formatTimeAgo(account.lastSync)}</div>
                       </div>
                     </div>
                     <div className="flex items-center gap-2">
                       <Button variant="outline" size="sm">
                         <ExternalLink className="h-4 w-4" />
                       </Button>
-                      <Dialog open={showDeleteDialog === wallet.id} onOpenChange={() => setShowDeleteDialog(null)}>
+                      <Dialog open={showDeleteDialog === account.id} onOpenChange={() => setShowDeleteDialog(null)}>
                         <DialogTrigger asChild>
                           <Button
                             variant="outline"
                             size="sm"
-                            onClick={() => setShowDeleteDialog(wallet.id)}
+                            onClick={() => setShowDeleteDialog(account.id)}
                             className="text-destructive hover:text-destructive"
                           >
                             <Trash2 className="h-4 w-4" />
@@ -357,17 +357,17 @@ export function Settings() {
                         </DialogTrigger>
                         <DialogContent>
                           <DialogHeader>
-                            <DialogTitle>Remove Wallet</DialogTitle>
+                            <DialogTitle>Remove Account</DialogTitle>
                             <DialogDescription>
-                              Are you sure you want to remove "{wallet.label}"? This action cannot be undone.
+                              Are you sure you want to remove "{account.label}"? This action cannot be undone.
                             </DialogDescription>
                           </DialogHeader>
                           <div className="flex justify-end gap-2">
                             <Button variant="outline" onClick={() => setShowDeleteDialog(null)}>
                               Cancel
                             </Button>
-                            <Button variant="destructive" onClick={() => deleteWallet(wallet.id)}>
-                              Remove Wallet
+                            <Button variant="destructive" onClick={() => deleteAccount(account.id)}>
+                              Remove Account
                             </Button>
                           </div>
                         </DialogContent>

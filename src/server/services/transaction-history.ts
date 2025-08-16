@@ -3,7 +3,7 @@ import pool from '../../database/connection';
 
 interface TransactionData {
   id: string;
-  walletId: string;
+  accountId: string;
   transactionHash: string;
   blockNumber: number;
   eventType: "transfer" | "swap" | "deposit" | "withdrawal";
@@ -17,9 +17,9 @@ interface TransactionData {
   gasUsed: string;
   gasFee: string;
   timestamp: Date;
-  walletAddress: string;
+  accountAddress: string;
   chain: "ethereum" | "polygon" | "arbitrum" | "optimism" | "base";
-  walletLabel: string;
+  accountLabel: string;
   status: "confirmed" | "pending" | "failed";
 }
 
@@ -27,9 +27,9 @@ export class TransactionHistoryService {
   /**
    * Fetch transactions for a wallet address using CDP JSON-RPC API
    */
-  async fetchTransactionsFromCDP(walletAddress: string, limit: number = 50): Promise<TransactionData[]> {
+  async fetchTransactionsFromCDP(accountAddress: string, limit: number = 50): Promise<TransactionData[]> {
     try {
-      console.log(`Fetching transactions for address ${walletAddress} (limit: ${limit})`);
+      console.log(`Fetching transactions for address ${accountAddress} (limit: ${limit})`);
       
       // Construct CDP JSON-RPC request
       const rpcUrl = `https://api.developer.coinbase.com/rpc/v1/${EVM_NETWORK}/${process.env.CDP_API_KEY_ID}`;
@@ -39,7 +39,7 @@ export class TransactionHistoryService {
         id: 1,
         method: "cdp_listAddressTransactions",
         params: [{
-          address: walletAddress,
+          address: accountAddress,
           pageSize: limit,
           pageToken: "" // Start from beginning
         }]
@@ -68,7 +68,7 @@ export class TransactionHistoryService {
       
       for (const tx of transactions) {
         try {
-          const formattedTx = await this.formatCDPTransaction(tx, walletAddress);
+          const formattedTx = await this.formatCDPTransaction(tx, accountAddress);
           if (formattedTx) {
             formattedTransactions.push(formattedTx);
           }
@@ -89,7 +89,7 @@ export class TransactionHistoryService {
   /**
    * Format CDP transaction data to match our interface
    */
-  private async formatCDPTransaction(cdpTx: any, walletAddress: string): Promise<TransactionData | null> {
+  private async formatCDPTransaction(cdpTx: any, accountAddress: string): Promise<TransactionData | null> {
     try {
       // Extract transaction details from CDP response
       const txHash = cdpTx.transaction_hash || cdpTx.hash || cdpTx.tx_hash;
@@ -120,9 +120,9 @@ export class TransactionHistoryService {
         eventType = 'deposit';
       } else if (method.toLowerCase().includes('withdraw') || txType.toLowerCase().includes('withdraw')) {
         eventType = 'withdrawal';
-      } else if (cdpTx.from_address?.toLowerCase() === walletAddress.toLowerCase()) {
+      } else if (cdpTx.from_address?.toLowerCase() === accountAddress.toLowerCase()) {
         eventType = 'withdrawal'; // Outgoing transfer
-      } else if (cdpTx.to_address?.toLowerCase() === walletAddress.toLowerCase()) {
+      } else if (cdpTx.to_address?.toLowerCase() === accountAddress.toLowerCase()) {
         eventType = 'deposit'; // Incoming transfer
       }
 
@@ -191,8 +191,8 @@ export class TransactionHistoryService {
       }
 
       const formattedTransaction: TransactionData = {
-        id: txHash || `${walletAddress}-${blockNumber}-${Date.now()}`,
-        walletId: walletAddress,
+        id: txHash || `${accountAddress}-${blockNumber}-${Date.now()}`,
+        accountId: accountAddress,
         transactionHash: txHash || '',
         blockNumber,
         eventType,
@@ -206,9 +206,9 @@ export class TransactionHistoryService {
         gasUsed: gasUsed.toString(),
         gasFee: gasFee.toString(),
         timestamp,
-        walletAddress,
+        accountAddress,
         chain,
-        walletLabel: 'CDP Wallet',
+        accountLabel: 'CDP Wallet',
         status
       };
 
@@ -229,16 +229,16 @@ export class TransactionHistoryService {
       await client.query('BEGIN');
       
       for (const tx of transactions) {
-        // Insert or update wallet_events table
+        // Insert or update account_events table
         await client.query(`
-          INSERT INTO wallet_events (
+          INSERT INTO account_events (
             address, occurred_at, kind, tx_hash, chain, details
           ) VALUES ($1, $2, $3, $4, $5, $6)
           ON CONFLICT (tx_hash) DO UPDATE SET
             details = EXCLUDED.details,
             occurred_at = EXCLUDED.occurred_at
         `, [
-          tx.walletAddress,
+          tx.accountAddress,
           tx.timestamp,
           this.mapEventTypeToKind(tx.eventType),
           tx.transactionHash,
@@ -291,11 +291,11 @@ export class TransactionHistoryService {
   /**
    * Get transactions for a wallet address (from database with CDP fallback)
    */
-  async getTransactions(walletAddress: string, limit: number = 50, refresh: boolean = false): Promise<TransactionData[]> {
+  async getTransactions(accountAddress: string, limit: number = 50, refresh: boolean = false): Promise<TransactionData[]> {
     try {
       // If refresh is requested, fetch from CDP first
       if (refresh) {
-        const cdpTransactions = await this.fetchTransactionsFromCDP(walletAddress, limit);
+        const cdpTransactions = await this.fetchTransactionsFromCDP(accountAddress, limit);
         if (cdpTransactions.length > 0) {
           await this.storeTransactions(cdpTransactions);
         }
@@ -306,12 +306,12 @@ export class TransactionHistoryService {
         SELECT 
           we.*,
           uw.user_id
-        FROM wallet_events we
-        JOIN user_wallets uw ON we.address = uw.address
+        FROM account_events we
+        JOIN user_accounts uw ON we.address = uw.address
         WHERE we.address = $1
         ORDER BY we.occurred_at DESC
         LIMIT $2
-      `, [walletAddress, limit]);
+      `, [accountAddress, limit]);
 
       // Format database results to match our interface
       return result.rows.map(row => this.formatDatabaseTransaction(row));
@@ -329,7 +329,7 @@ export class TransactionHistoryService {
     
     return {
       id: dbTx.tx_hash || dbTx.id.toString(),
-      walletId: dbTx.address,
+      accountId: dbTx.address,
       transactionHash: dbTx.tx_hash || '',
       blockNumber: details.blockNumber || 0,
       eventType: details.eventType || this.mapKindToEventType(dbTx.kind),
@@ -343,9 +343,9 @@ export class TransactionHistoryService {
       gasUsed: details.gasUsed || '0',
       gasFee: details.gasFee || '0',
       timestamp: new Date(dbTx.occurred_at),
-      walletAddress: dbTx.address,
+      accountAddress: dbTx.address,
       chain: (dbTx.chain || 'base') as TransactionData['chain'],
-      walletLabel: 'CDP Wallet',
+      accountLabel: 'CDP Wallet',
       status: (details.status || 'confirmed') as TransactionData['status']
     };
   }

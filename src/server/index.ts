@@ -3,11 +3,12 @@ import cors from 'cors';
 import helmet from 'helmet';
 import dotenv from 'dotenv';
 import path from 'path';
-import { walletRoutes } from './routes/wallets';
+import { accountRoutes } from './routes/wallets';
 import { ruleRoutes } from './routes/rules';
 import { alertRoutes } from './routes/alerts';
 import { portfolioRoutes } from './routes/portfolio';
 import { cdpOnboardingRoutes } from './routes/cdp-onboarding';
+import { fundingRoutes } from './routes/funding';
 import { authRoutes } from './routes/auth';
 
 dotenv.config();
@@ -27,8 +28,9 @@ app.use(express.json());
 
 // API Routes
 app.use('/api/auth', authRoutes);
-app.use('/api/wallets', walletRoutes);
+app.use('/api/accounts', accountRoutes);
 app.use('/api/cdp', cdpOnboardingRoutes);
+app.use('/api/funding', fundingRoutes);
 app.use('/api/rules', ruleRoutes);
 app.use('/api/alerts', alertRoutes);
 app.use('/api/portfolio', portfolioRoutes);

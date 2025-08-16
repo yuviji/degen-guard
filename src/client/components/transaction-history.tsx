@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useMemo } from "react"
-import { useWallets } from "../hooks/useWallets"
+import { useAccounts } from "../hooks/useWallets"
 import { useTransactions } from "../hooks/useTransactions"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -40,7 +40,7 @@ import { format, subDays, startOfDay, endOfDay } from "date-fns"
 
 interface Transaction {
   id: string
-  walletId: string
+  accountId: string
   transactionHash: string
   blockNumber: number
   eventType: "transfer" | "swap" | "deposit" | "withdrawal"
@@ -54,9 +54,9 @@ interface Transaction {
   gasUsed: string
   gasFee: string
   timestamp: Date
-  walletAddress: string
+  accountAddress: string
   chain: "ethereum" | "polygon" | "arbitrum" | "optimism" | "base"
-  walletLabel: string
+  accountLabel: string
   status: "confirmed" | "pending" | "failed"
 }
 
@@ -138,9 +138,9 @@ function getChainBadgeColor(chain: string) {
 }
 
 export function TransactionHistory() {
-  const { wallets, loading: walletsLoading } = useWallets()
-  const selectedWalletAddress = wallets.length > 0 ? wallets[0].address : undefined
-  const { transactions, loading: transactionsLoading, error: transactionsError, refetch } = useTransactions(selectedWalletAddress)
+  const { accounts, loading: accountsLoading } = useAccounts()
+  const selectedAccountAddress = accounts.length > 0 ? accounts[0].address : undefined
+  const { transactions, loading: transactionsLoading, error: transactionsError, refetch } = useTransactions(selectedAccountAddress)
   const [searchQuery, setSearchQuery] = useState("")
   const [eventTypeFilter, setEventTypeFilter] = useState<string>("all")
   const [chainFilter, setChainFilter] = useState<string>("all")
@@ -158,7 +158,7 @@ export function TransactionHistory() {
       const matchesSearch =
         tx.tokenSymbol.toLowerCase().includes(searchQuery.toLowerCase()) ||
         tx.transactionHash.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        tx.walletLabel.toLowerCase().includes(searchQuery.toLowerCase())
+        tx.accountLabel.toLowerCase().includes(searchQuery.toLowerCase())
 
       const matchesEventType = eventTypeFilter === "all" || tx.eventType === eventTypeFilter
       const matchesChain = chainFilter === "all" || tx.chain === chainFilter
@@ -203,7 +203,7 @@ export function TransactionHistory() {
   }
 
   const exportToCSV = () => {
-    const headers = ["Date", "Type", "Token", "Amount", "USD Value", "Chain", "Wallet", "Transaction Hash", "Gas Fee"]
+    const headers = ["Date", "Type", "Token", "Amount", "USD Value", "Chain", "Account", "Transaction Hash", "Gas Fee"]
 
     const csvData = filteredAndSortedTransactions.map((tx) => [
       format(tx.timestamp, "yyyy-MM-dd HH:mm:ss"),
@@ -212,7 +212,7 @@ export function TransactionHistory() {
       tx.amount,
       tx.usdValue,
       tx.chain,
-      tx.walletLabel,
+      tx.accountLabel,
       tx.transactionHash,
       tx.gasFee,
     ])
@@ -282,7 +282,7 @@ export function TransactionHistory() {
       )}
 
       {/* Loading State */}
-      {(walletsLoading || transactionsLoading) && (
+      {(accountsLoading || transactionsLoading) && (
         <Card>
           <CardContent className="p-8">
             <div className="flex flex-col items-center gap-2 text-muted-foreground">
@@ -294,7 +294,7 @@ export function TransactionHistory() {
       )}
 
       {/* Summary Cards */}
-      {!walletsLoading && !transactionsLoading && (
+      {!accountsLoading && !transactionsLoading && (
         <div className="grid gap-4 md:grid-cols-4">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
@@ -502,7 +502,7 @@ export function TransactionHistory() {
                     </Button>
                   </TableHead>
                   <TableHead>Chain</TableHead>
-                  <TableHead>Wallet</TableHead>
+                  <TableHead>Account</TableHead>
                   <TableHead>Hash</TableHead>
                   <TableHead>Gas Fee</TableHead>
                   <TableHead></TableHead>
@@ -517,7 +517,7 @@ export function TransactionHistory() {
                           <RefreshCw className="h-6 w-6" />
                         </div>
                         <p className="text-sm font-medium">No transactions found</p>
-                        <p className="text-xs">Your transaction history will appear here once you start using your wallets.</p>
+                        <p className="text-xs">Your transaction history will appear here once you start using your accounts.</p>
                       </div>
                     </TableCell>
                   </TableRow>
@@ -560,7 +560,7 @@ export function TransactionHistory() {
                       </Badge>
                     </TableCell>
                     <TableCell>
-                      <span className="text-sm">{transaction.walletLabel}</span>
+                      <span className="text-sm">{transaction.accountLabel}</span>
                     </TableCell>
                     <TableCell>
                       <div className="flex items-center gap-2">
@@ -730,8 +730,8 @@ export function TransactionHistory() {
                     <span className="font-mono">{selectedTransaction.gasFee} ETH</span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-muted-foreground">Wallet:</span>
-                    <span>{selectedTransaction.walletLabel}</span>
+                    <span className="text-muted-foreground">Account:</span>
+                    <span>{selectedTransaction.accountLabel}</span>
                   </div>
                 </div>
               </div>

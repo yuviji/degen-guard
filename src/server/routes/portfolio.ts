@@ -13,68 +13,68 @@ portfolioRoutes.get('/overview', async (req, res) => {
       return res.status(401).json({ error: 'Authentication required' });
     }
 
-    // Get total portfolio value from latest wallet balance
+    // Get total portfolio value from latest account balance
     const totalValueResult = await pool.query(`
       SELECT 
-        COALESCE((wb.payload->>'total_usd_value')::DECIMAL, 0) as total_usd_value,
-        COALESCE(jsonb_array_length(wb.payload->'balances'), 0) as token_count
-      FROM user_wallets uw
+        COALESCE((ab.payload->>'total_usd_value')::DECIMAL, 0) as total_usd_value,
+        COALESCE(jsonb_array_length(ab.payload->'balances'), 0) as token_count
+      FROM user_accounts ua
       JOIN LATERAL (
         SELECT payload 
-        FROM wallet_balances 
-        WHERE address = uw.address 
+        FROM account_balances 
+        WHERE address = ua.address 
         ORDER BY as_of DESC 
         LIMIT 1
-      ) wb ON true
-      WHERE uw.user_id = $1 AND uw.status = 'active'
+      ) ab ON true
+      WHERE ua.user_id = $1 AND ua.status = 'active'
     `, [userId]);
 
-    // Get stablecoin allocation from wallet balance payload
+    // Get stablecoin allocation from account balance payload
     const stablecoinResult = await pool.query(`
       SELECT 
         COALESCE(
           (SELECT SUM((balance->>'usd_value')::DECIMAL)
-           FROM jsonb_array_elements(wb.payload->'balances') AS balance
+           FROM jsonb_array_elements(ab.payload->'balances') AS balance
            WHERE balance->>'symbol' IN ('USDC', 'USDT', 'DAI', 'BUSD', 'FRAX')), 0
         ) as stablecoin_value,
-        COALESCE((wb.payload->>'total_usd_value')::DECIMAL, 0) as total_value
-      FROM user_wallets uw
+        COALESCE((ab.payload->>'total_usd_value')::DECIMAL, 0) as total_value
+      FROM user_accounts ua
       JOIN LATERAL (
         SELECT payload 
-        FROM wallet_balances 
-        WHERE address = uw.address 
+        FROM account_balances 
+        WHERE address = ua.address 
         ORDER BY as_of DESC 
         LIMIT 1
-      ) wb ON true
-      WHERE uw.user_id = $1 AND uw.status = 'active'
+      ) ab ON true
+      WHERE ua.user_id = $1 AND ua.status = 'active'
     `, [userId]);
 
-    // Get asset allocations from wallet balance payload
+    // Get asset allocations from account balance payload
     const allocationsResult = await pool.query(`
       SELECT 
         balance->>'symbol' as symbol,
         (balance->>'usd_value')::DECIMAL as usd_value,
         CASE 
-          WHEN (wb.payload->>'total_usd_value')::DECIMAL > 0 THEN 
-            ((balance->>'usd_value')::DECIMAL / (wb.payload->>'total_usd_value')::DECIMAL) * 100
+          WHEN (ab.payload->>'total_usd_value')::DECIMAL > 0 THEN 
+            ((balance->>'usd_value')::DECIMAL / (ab.payload->>'total_usd_value')::DECIMAL) * 100
           ELSE 0 
         END as allocation_pct
-      FROM user_wallets uw
+      FROM user_accounts ua
       JOIN LATERAL (
         SELECT payload 
-        FROM wallet_balances 
-        WHERE address = uw.address 
+        FROM account_balances 
+        WHERE address = ua.address 
         ORDER BY as_of DESC 
         LIMIT 1
-      ) wb ON true,
-      jsonb_array_elements(wb.payload->'balances') AS balance
-      WHERE uw.user_id = $1 AND uw.status = 'active'
+      ) ab ON true,
+      jsonb_array_elements(ab.payload->'balances') AS balance
+      WHERE ua.user_id = $1 AND ua.status = 'active'
         AND (balance->>'usd_value')::DECIMAL > 0
       ORDER BY (balance->>'usd_value')::DECIMAL DESC
       LIMIT 10
     `, [userId]);
 
-    // Calculate daily PnL from wallet balance history
+    // Calculate daily PnL from account balance history
     const dailyPnlResult = await pool.query(`
       SELECT 
         COALESCE(
@@ -85,23 +85,23 @@ portfolioRoutes.get('/overview', async (req, res) => {
           END,
           0
         ) as daily_pnl_pct
-      FROM user_wallets uw
+      FROM user_accounts ua
       LEFT JOIN LATERAL (
         SELECT (payload->>'total_usd_value')::DECIMAL as total_value
-        FROM wallet_balances 
-        WHERE address = uw.address 
+        FROM account_balances 
+        WHERE address = ua.address 
         ORDER BY as_of DESC 
         LIMIT 1
       ) current_balance ON true
       LEFT JOIN LATERAL (
         SELECT (payload->>'total_usd_value')::DECIMAL as total_value
-        FROM wallet_balances 
-        WHERE address = uw.address 
+        FROM account_balances 
+        WHERE address = ua.address 
           AND as_of <= NOW() - INTERVAL '24 hours'
         ORDER BY as_of DESC 
         LIMIT 1
       ) prev_balance ON true
-      WHERE uw.user_id = $1 AND uw.status = 'active'
+      WHERE ua.user_id = $1 AND ua.status = 'active'
     `, [userId]);
 
     const totalValue = parseFloat(totalValueResult.rows[0]?.total_usd_value || '0');
@@ -140,12 +140,12 @@ portfolioRoutes.get('/history', async (req, res) => {
 
     const result = await pool.query(`
       SELECT 
-        DATE_TRUNC('hour', wb.as_of) as timestamp,
-        (wb.payload->>'total_usd_value')::DECIMAL as total_value
-      FROM user_wallets uw
-      JOIN wallet_balances wb ON uw.address = wb.address
-      WHERE uw.user_id = $1 AND uw.status = 'active'
-        AND wb.as_of >= NOW() - INTERVAL '${days} days'
+        DATE_TRUNC('hour', ab.as_of) as timestamp,
+        (ab.payload->>'total_usd_value')::DECIMAL as total_value
+      FROM user_accounts ua
+      JOIN account_balances ab ON ua.address = ab.address
+      WHERE ua.user_id = $1 AND ua.status = 'active'
+        AND ab.as_of >= NOW() - INTERVAL '${days} days'
       ORDER BY timestamp DESC
     `, [userId]);
 
@@ -168,13 +168,13 @@ portfolioRoutes.get('/transactions', async (req, res) => {
 
     const result = await pool.query(`
       SELECT 
-        we.*,
-        uw.address as wallet_address,
-        uw.chain
-      FROM user_wallets uw
-      JOIN wallet_events we ON uw.address = we.address
-      WHERE uw.user_id = $1 AND uw.status = 'active'
-      ORDER BY we.occurred_at DESC
+        ae.*,
+        ua.address as account_address,
+        ua.chain
+      FROM user_accounts ua
+      JOIN account_events ae ON ua.address = ae.address
+      WHERE ua.user_id = $1 AND ua.status = 'active'
+      ORDER BY ae.occurred_at DESC
       LIMIT $2
     `, [userId, limit]);
 

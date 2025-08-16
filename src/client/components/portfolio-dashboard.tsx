@@ -18,7 +18,7 @@ import {
   AreaChart,
   Area,
 } from "recharts"
-import { TrendingUp, Wallet, Shield, Bell, Clock, ArrowUpRight, ArrowDownRight, ExternalLink, RefreshCw } from "lucide-react"
+import { TrendingUp, CreditCard, Shield, Bell, Clock, ArrowUpRight, ArrowDownRight, ExternalLink, RefreshCw } from "lucide-react"
 import { portfolioApi, PortfolioMetrics, ApiError } from "@/lib/api"
 
 // Asset color mapping for consistent visualization
@@ -171,12 +171,12 @@ export function PortfolioDashboard() {
           <Card className="w-full max-w-md">
             <CardHeader className="text-center">
               <CardTitle className="text-2xl">Welcome to DegenGuard</CardTitle>
-              <p className="text-muted-foreground">Connect your wallet to start monitoring your DeFi portfolio</p>
+              <p className="text-muted-foreground">Connect your account to start monitoring your DeFi portfolio</p>
             </CardHeader>
             <CardContent className="text-center">
-              <Button size="lg" className="w-full" onClick={() => window.location.href = '/wallets'}>
-                <Wallet className="mr-2 h-4 w-4" />
-                Connect Wallet
+              <Button size="lg" className="w-full" onClick={() => window.location.href = '/dashboard'}>
+                <CreditCard className="mr-2 h-4 w-4" />
+                Connect Account
               </Button>
             </CardContent>
           </Card>
@@ -273,12 +273,12 @@ export function PortfolioDashboard() {
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Connected Wallets</CardTitle>
-            <Wallet className="h-4 w-4 text-muted-foreground" />
+            <CardTitle className="text-sm font-medium">Connected Accounts</CardTitle>
+            <CreditCard className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold metric-value">-</div>
-            <p className="text-xs text-muted-foreground">Loading wallet data</p>
+            <p className="text-xs text-muted-foreground">Loading account data</p>
           </CardContent>
         </Card>
 

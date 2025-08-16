@@ -42,24 +42,24 @@ export default function LoginPage() {
       // Store the auth token
       localStorage.setItem('authToken', data.token);
       
-      // Check if user has wallets to determine redirect
+      // Check if user has a CDP account to determine redirect
       try {
-        const walletsResponse = await fetch(`${API_BASE_URL}/api/wallets`, {
+        const accountResponse = await fetch(`${API_BASE_URL}/api/cdp/me`, {
           headers: {
             'Authorization': `Bearer ${data.token}`,
             'Content-Type': 'application/json',
           },
         });
         
-        if (walletsResponse.ok) {
-          const wallets = await walletsResponse.json();
-          if (wallets.length > 0) {
+        if (accountResponse.ok) {
+          const accountData = await accountResponse.json();
+          if (accountData.exists && accountData.server) {
             router.push('/dashboard');
           } else {
             router.push('/onboarding');
           }
         } else {
-          // If we can't check wallets, go to onboarding to be safe
+          // If we can't check account, go to onboarding to be safe
           router.push('/onboarding');
         }
       } catch {

@@ -1,14 +1,14 @@
 import express from 'express';
 import pool from '../../database/connection';
 import cdpService from '../services/cdp';
-import { Wallet } from '@/shared/types';
+import { Account } from '@/shared/types';
 import { getUserId } from '../../lib/session';
 import { transactionHistoryService } from '../services/transaction-history';
 
-export const walletRoutes = express.Router();
+export const accountRoutes = express.Router();
 
-// Get all wallets for a user
-walletRoutes.get('/', async (req, res) => {
+// Get all accounts for a user
+accountRoutes.get('/', async (req, res) => {
   try {
     const userId = getUserId(req);
     if (!userId) {
@@ -16,7 +16,7 @@ walletRoutes.get('/', async (req, res) => {
     }
 
     const result = await pool.query(
-      'SELECT * FROM user_wallets WHERE user_id = $1 ORDER BY created_at DESC',
+      'SELECT * FROM user_accounts WHERE user_id = $1 ORDER BY created_at DESC',
       [userId]
     );
 
@@ -28,7 +28,7 @@ walletRoutes.get('/', async (req, res) => {
 });
 
 // Create a new server-managed wallet (CDP-based)
-walletRoutes.post('/', async (req, res) => {
+accountRoutes.post('/', async (req, res) => {
   try {
     const userId = getUserId(req);
     if (!userId) {
@@ -37,7 +37,7 @@ walletRoutes.post('/', async (req, res) => {
 
     // Check if user already has a server wallet
     const existing = await pool.query(
-      `SELECT address FROM user_wallets WHERE user_id = $1 AND type = 'server'`,
+      `SELECT address FROM user_accounts WHERE user_id = $1 AND type = 'server'`,
       [userId]
     );
 
@@ -58,7 +58,7 @@ walletRoutes.post('/', async (req, res) => {
 
       // Store in database
       await pool.query(
-        `INSERT INTO user_wallets(user_id, type, cdp_wallet_id, address, chain, status)
+        `INSERT INTO user_accounts(user_id, type, cdp_account_id, address, chain, status)
          VALUES ($1, 'server', $2, $3, $4, 'provisioned')
          ON CONFLICT (user_id, type) DO NOTHING`,
         [userId, null, addressString, 'base']
@@ -79,7 +79,7 @@ walletRoutes.post('/', async (req, res) => {
 });
 
 // Get wallet balances
-walletRoutes.get('/:address/balances', async (req, res) => {
+accountRoutes.get('/:address/balances', async (req, res) => {
   try {
     const { address } = req.params;
     const userId = getUserId(req);
@@ -89,7 +89,7 @@ walletRoutes.get('/:address/balances', async (req, res) => {
 
     // Verify wallet belongs to user
     const walletResult = await pool.query(
-      'SELECT * FROM user_wallets WHERE address = $1 AND user_id = $2',
+      'SELECT * FROM user_accounts WHERE address = $1 AND user_id = $2',
       [address, userId]
     );
 
@@ -99,7 +99,7 @@ walletRoutes.get('/:address/balances', async (req, res) => {
 
     // Get latest balance snapshot from database
     const balanceResult = await pool.query(
-      `SELECT payload FROM wallet_balances 
+      `SELECT payload FROM account_balances 
        WHERE address = $1 
        ORDER BY as_of DESC 
        LIMIT 1`,
@@ -118,7 +118,7 @@ walletRoutes.get('/:address/balances', async (req, res) => {
 });
 
 // Get wallet transactions
-walletRoutes.get('/:address/transactions', async (req, res) => {
+accountRoutes.get('/:address/transactions', async (req, res) => {
   try {
     const { address } = req.params;
     const limit = parseInt(req.query.limit as string) || 50;
@@ -130,7 +130,7 @@ walletRoutes.get('/:address/transactions', async (req, res) => {
 
     // Verify wallet belongs to user
     const walletResult = await pool.query(
-      'SELECT * FROM user_wallets WHERE address = $1 AND user_id = $2',
+      'SELECT * FROM user_accounts WHERE address = $1 AND user_id = $2',
       [address, userId]
     );
 
@@ -149,7 +149,7 @@ walletRoutes.get('/:address/transactions', async (req, res) => {
 });
 
 // Delete a wallet
-walletRoutes.delete('/:address', async (req, res) => {
+accountRoutes.delete('/:address', async (req, res) => {
   try {
     const { address } = req.params;
     const userId = getUserId(req);
@@ -158,7 +158,7 @@ walletRoutes.delete('/:address', async (req, res) => {
     }
 
     const result = await pool.query(
-      'DELETE FROM user_wallets WHERE address = $1 AND user_id = $2 RETURNING *',
+      'DELETE FROM user_accounts WHERE address = $1 AND user_id = $2 RETURNING *',
       [address, userId]
     );
 
