@@ -84,66 +84,91 @@ class RulesEngine {
   }
 
   async getPortfolioMetrics(userId: string): Promise<PortfolioMetrics> {
-    // Get total portfolio value
+    // Get total portfolio value from latest wallet balance
     const totalValueResult = await pool.query(`
       SELECT 
-        COALESCE(SUM(a.usd_value), 0) as total_usd_value
-      FROM wallets w
-      JOIN asset_snapshots a ON w.id = a.wallet_id
-      WHERE w.user_id = $1 
-        AND a.timestamp >= NOW() - INTERVAL '1 hour'
+        COALESCE((wb.payload->>'total_usd_value')::DECIMAL, 0) as total_usd_value
+      FROM user_wallets uw
+      JOIN LATERAL (
+        SELECT payload 
+        FROM wallet_balances 
+        WHERE address = uw.address 
+        ORDER BY as_of DESC 
+        LIMIT 1
+      ) wb ON true
+      WHERE uw.user_id = $1 AND uw.status = 'active'
     `, [userId]);
 
-    // Get stablecoin allocation
+    // Get stablecoin allocation from wallet balance payload
     const stablecoinResult = await pool.query(`
       SELECT 
-        COALESCE(SUM(CASE WHEN a.token_symbol IN ('USDC', 'USDT', 'DAI', 'BUSD', 'FRAX') THEN a.usd_value ELSE 0 END), 0) as stablecoin_value,
-        COALESCE(SUM(a.usd_value), 0) as total_value
-      FROM wallets w
-      JOIN asset_snapshots a ON w.id = a.wallet_id
-      WHERE w.user_id = $1 
-        AND a.timestamp >= NOW() - INTERVAL '1 hour'
+        COALESCE(
+          (SELECT SUM((balance->>'usd_value')::DECIMAL)
+           FROM jsonb_array_elements(wb.payload->'balances') AS balance
+           WHERE balance->>'symbol' IN ('USDC', 'USDT', 'DAI', 'BUSD', 'FRAX')), 0
+        ) as stablecoin_value,
+        COALESCE((wb.payload->>'total_usd_value')::DECIMAL, 0) as total_value
+      FROM user_wallets uw
+      JOIN LATERAL (
+        SELECT payload 
+        FROM wallet_balances 
+        WHERE address = uw.address 
+        ORDER BY as_of DESC 
+        LIMIT 1
+      ) wb ON true
+      WHERE uw.user_id = $1 AND uw.status = 'active'
     `, [userId]);
 
-    // Get largest position
+    // Get largest position from wallet balance payload
     const largestPositionResult = await pool.query(`
       SELECT 
         MAX(
           CASE 
-            WHEN SUM(SUM(a.usd_value)) OVER() > 0 THEN 
-              (SUM(a.usd_value) / SUM(SUM(a.usd_value)) OVER()) * 100
+            WHEN (wb.payload->>'total_usd_value')::DECIMAL > 0 THEN 
+              ((balance->>'usd_value')::DECIMAL / (wb.payload->>'total_usd_value')::DECIMAL) * 100
             ELSE 0 
           END
         ) as largest_position_pct
-      FROM wallets w
-      JOIN asset_snapshots a ON w.id = a.wallet_id
-      WHERE w.user_id = $1 
-        AND a.timestamp >= NOW() - INTERVAL '1 hour'
-      GROUP BY a.token_symbol
+      FROM user_wallets uw
+      JOIN LATERAL (
+        SELECT payload 
+        FROM wallet_balances 
+        WHERE address = uw.address 
+        ORDER BY as_of DESC 
+        LIMIT 1
+      ) wb ON true,
+      jsonb_array_elements(wb.payload->'balances') AS balance
+      WHERE uw.user_id = $1 AND uw.status = 'active'
     `, [userId]);
 
-    // Calculate daily PnL (simplified)
+    // Calculate daily PnL from wallet balance history
     const dailyPnlResult = await pool.query(`
       SELECT 
         COALESCE(
-          (current_total.total_value - prev_total.total_value) / NULLIF(prev_total.total_value, 0) * 100,
+          CASE 
+            WHEN prev_balance.total_value > 0 THEN
+              ((current_balance.total_value - prev_balance.total_value) / prev_balance.total_value) * 100
+            ELSE 0
+          END,
           0
         ) as daily_pnl_pct
-      FROM (
-        SELECT SUM(a.usd_value) as total_value
-        FROM wallets w
-        JOIN asset_snapshots a ON w.id = a.wallet_id
-        WHERE w.user_id = $1 
-          AND a.timestamp >= NOW() - INTERVAL '1 hour'
-      ) current_total
-      CROSS JOIN (
-        SELECT COALESCE(SUM(a.usd_value), 0) as total_value
-        FROM wallets w
-        JOIN asset_snapshots a ON w.id = a.wallet_id
-        WHERE w.user_id = $1 
-          AND a.timestamp >= NOW() - INTERVAL '25 hours'
-          AND a.timestamp < NOW() - INTERVAL '23 hours'
-      ) prev_total
+      FROM user_wallets uw
+      LEFT JOIN LATERAL (
+        SELECT (payload->>'total_usd_value')::DECIMAL as total_value
+        FROM wallet_balances 
+        WHERE address = uw.address 
+        ORDER BY as_of DESC 
+        LIMIT 1
+      ) current_balance ON true
+      LEFT JOIN LATERAL (
+        SELECT (payload->>'total_usd_value')::DECIMAL as total_value
+        FROM wallet_balances 
+        WHERE address = uw.address 
+          AND as_of <= NOW() - INTERVAL '24 hours'
+        ORDER BY as_of DESC 
+        LIMIT 1
+      ) prev_balance ON true
+      WHERE uw.user_id = $1 AND uw.status = 'active'
     `, [userId]);
 
     const totalValue = parseFloat(totalValueResult.rows[0]?.total_usd_value || '0');

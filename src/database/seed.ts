@@ -14,13 +14,12 @@ async function seed() {
     
     const userId = userResult.rows[0].id;
     
-    // Create demo wallets
+    // Create demo server wallet
     await pool.query(`
-      INSERT INTO wallets (user_id, address, chain, label) 
+      INSERT INTO user_wallets (user_id, type, address, chain, status) 
       VALUES 
-        ($1, '0x742d35cc6634c0532925a3b8d6ac6e1f5b0e6e8f', 'ethereum', 'Main Wallet'),
-        ($1, '0x8ba1f109551bd432803012645hac136c', 'polygon', 'DeFi Wallet')
-      ON CONFLICT (address, chain) DO NOTHING
+        ($1, 'server', '0x742d35cc6634c0532925a3b8d6ac6e1f5b0e6e8f', 'base', 'active')
+      ON CONFLICT (address) DO NOTHING
     `, [userId]);
     
     // Create demo rules

@@ -1,66 +1,62 @@
 import { CDPBalance, CDPTransaction, CDPPrice } from '@/shared/types';
-import axios from 'axios';
+import { cdp } from '../../lib/cdp';
 import dotenv from 'dotenv';
 
 dotenv.config();
 
 class CDPService {
-  private apiKey: string;
-  private apiSecret: string;
-  private baseUrl = 'https://api.coinbase.com/api/v3';
-
   constructor() {
-    this.apiKey = process.env.CDP_API_KEY!;
-    this.apiSecret = process.env.CDP_API_SECRET!;
-  }
-
-  private async makeRequest(endpoint: string, params: any = {}) {
-    try {
-      const response = await axios.get(`${this.baseUrl}${endpoint}`, {
-        params,
-        headers: {
-          'Authorization': `Bearer ${this.apiKey}`,
-          'Content-Type': 'application/json'
-        }
-      });
-      return response.data;
-    } catch (error) {
-      console.error(`CDP API request failed for ${endpoint}:`, error);
-      throw error;
-    }
+    // CDP client is initialized in lib/cdp.ts
   }
 
   async getWalletBalances(address: string, networkId: string): Promise<CDPBalance[]> {
     try {
-      // Mock implementation for demo - replace with actual CDP API calls
-      const mockBalances: CDPBalance[] = [
-        {
-          amount: '1000.0',
-          currency: {
-            code: 'USDC',
-            name: 'USD Coin',
-            address: '0xa0b86a33e6ba8d6e8b4e9b8b8b8b8b8b8b8b8b8b'
-          },
-          usd_value: {
-            amount: '1000.0',
-            currency: 'USD'
-          }
-        },
-        {
-          amount: '0.5',
-          currency: {
-            code: 'ETH',
-            name: 'Ethereum',
-            address: '0x0000000000000000000000000000000000000000'
-          },
-          usd_value: {
-            amount: '1500.0',
-            currency: 'USD'
-          }
-        }
-      ];
+      // Use CDP JSON-RPC API to get wallet balances
+      const rpcUrl = `https://api.developer.coinbase.com/rpc/v1/${networkId}/${process.env.CDP_API_KEY_ID}`;
       
-      return mockBalances;
+      const requestBody = {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "cdp_listAddressBalances",
+        params: [{
+          address: address,
+          pageSize: 100
+        }]
+      };
+
+      const response = await fetch(rpcUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${process.env.CDP_API_KEY_SECRET}`
+        },
+        body: JSON.stringify(requestBody)
+      });
+
+      if (!response.ok) {
+        throw new Error(`CDP API request failed: ${response.status} ${response.statusText}`);
+      }
+
+      const data = await response.json();
+      
+      if (data.error) {
+        throw new Error(`CDP API error: ${data.error.message || 'Unknown error'}`);
+      }
+
+      const balances = data.result?.data || [];
+      
+      return balances.map((balance: any): CDPBalance => ({
+        amount: balance.amount || '0',
+        currency: {
+          code: balance.asset?.symbol || 'ETH',
+          name: balance.asset?.name || 'Ethereum',
+          address: balance.asset?.contract_address || ''
+        },
+        usd_value: {
+          amount: balance.usd_value || '0',
+          currency: 'USD'
+        }
+      }));
     } catch (error) {
       console.error('Error fetching wallet balances:', error);
       throw new Error('Failed to fetch wallet balances');
@@ -69,24 +65,54 @@ class CDPService {
 
   async getWalletTransactions(address: string, networkId: string, limit: number = 100): Promise<CDPTransaction[]> {
     try {
-      // Mock implementation for demo - replace with actual CDP API calls
-      const mockTransactions: CDPTransaction[] = [
-        {
-          id: '1',
-          hash: '0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef',
-          block_height: 18500000,
-          block_timestamp: new Date().toISOString(),
-          type: 'transfer',
-          from_address: '0xabcdef1234567890abcdef1234567890abcdef12',
-          to_address: address,
-          value: {
-            amount: '100.0',
-            currency: 'USDC'
-          }
-        }
-      ];
+      // Use CDP JSON-RPC API to get wallet transactions
+      const rpcUrl = `https://api.developer.coinbase.com/rpc/v1/${networkId}/${process.env.CDP_API_KEY_ID}`;
       
-      return mockTransactions;
+      const requestBody = {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "cdp_listAddressTransactions",
+        params: [{
+          address: address,
+          pageSize: limit,
+          pageToken: ""
+        }]
+      };
+
+      const response = await fetch(rpcUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${process.env.CDP_API_KEY_SECRET}`
+        },
+        body: JSON.stringify(requestBody)
+      });
+
+      if (!response.ok) {
+        throw new Error(`CDP API request failed: ${response.status} ${response.statusText}`);
+      }
+
+      const data = await response.json();
+      
+      if (data.error) {
+        throw new Error(`CDP API error: ${data.error.message || 'Unknown error'}`);
+      }
+
+      const transactions = data.result?.data || [];
+      
+      return transactions.map((tx: any): CDPTransaction => ({
+        id: tx.transaction_hash || tx.hash || `${address}-${Date.now()}`,
+        hash: tx.transaction_hash || tx.hash || '',
+        block_height: parseInt(tx.block_number || '0'),
+        block_timestamp: tx.block_timestamp || new Date().toISOString(),
+        type: tx.type || 'transfer',
+        from_address: tx.from_address || '',
+        to_address: tx.to_address || '',
+        value: {
+          amount: tx.value || tx.amount || '0',
+          currency: tx.symbol || tx.token_symbol || 'ETH'
+        }
+      }));
     } catch (error) {
       console.error('Error fetching wallet transactions:', error);
       throw new Error('Failed to fetch wallet transactions');
@@ -95,13 +121,17 @@ class CDPService {
 
   async getTokenPrice(tokenSymbol: string): Promise<CDPPrice> {
     try {
-      // Using a mock implementation since CDP SDK price endpoints may vary
-      // In production, you would use the actual CDP price API
+      // Use Coinbase public API for price data
       const response = await fetch(`https://api.coinbase.com/v2/exchange-rates?currency=${tokenSymbol}`);
+      
+      if (!response.ok) {
+        throw new Error(`Price API request failed: ${response.status}`);
+      }
+      
       const data = await response.json();
       
       return {
-        amount: data.data.rates.USD || '0',
+        amount: data.data?.rates?.USD || '0',
         currency: 'USD',
         base: tokenSymbol
       };
@@ -138,8 +168,44 @@ class CDPService {
 
   async validateAddress(address: string, networkId: string): Promise<boolean> {
     try {
-      // Basic validation - in production you might want more sophisticated validation
-      return /^0x[a-fA-F0-9]{40}$/.test(address);
+      // Validate Ethereum address format
+      const isValidFormat = /^0x[a-fA-F0-9]{40}$/.test(address);
+      
+      if (!isValidFormat) {
+        return false;
+      }
+
+      // Additional validation: check if address has any activity on the network
+      try {
+        const rpcUrl = `https://api.developer.coinbase.com/rpc/v1/${networkId}/${process.env.CDP_API_KEY_ID}`;
+        
+        const requestBody = {
+          jsonrpc: "2.0",
+          id: 1,
+          method: "eth_getBalance",
+          params: [address, "latest"]
+        };
+
+        const response = await fetch(rpcUrl, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${process.env.CDP_API_KEY_SECRET}`
+          },
+          body: JSON.stringify(requestBody)
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          // If we can get a balance (even 0), the address is valid on this network
+          return !data.error;
+        }
+      } catch (networkError) {
+        // If network check fails, fall back to format validation
+        console.warn('Network validation failed, using format validation only:', networkError);
+      }
+      
+      return isValidFormat;
     } catch (error) {
       console.error('Error validating address:', error);
       return false;

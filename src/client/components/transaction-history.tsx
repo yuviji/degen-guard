@@ -1,6 +1,8 @@
 "use client"
 
 import { useState, useMemo } from "react"
+import { useWallets } from "../hooks/useWallets"
+import { useTransactions } from "../hooks/useTransactions"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -53,140 +55,12 @@ interface Transaction {
   gasFee: string
   timestamp: Date
   walletAddress: string
-  chain: "ethereum" | "polygon" | "arbitrum" | "optimism"
+  chain: "ethereum" | "polygon" | "arbitrum" | "optimism" | "base"
   walletLabel: string
   status: "confirmed" | "pending" | "failed"
 }
 
-// Mock transaction data
-const mockTransactions: Transaction[] = [
-  {
-    id: "1",
-    walletId: "wallet-1",
-    transactionHash: "0x1a2b3c4d5e6f7g8h9i0j1k2l3m4n5o6p7q8r9s0t1u2v3w4x5y6z7a8b9c0d1e2f",
-    blockNumber: 18500123,
-    eventType: "swap",
-    fromAddress: "0x742d35Cc6634C0532925a3b8D4C9db4C4C4C4C4C",
-    toAddress: "0x1f9840a85d5aF5bf1D1762F925BDADdC4201F984",
-    tokenAddress: "0xA0b86a33E6441b8C4C4C4C4C4C4C4C4C4C4C4C4C",
-    tokenSymbol: "ETH",
-    tokenName: "Ethereum",
-    amount: "2.5",
-    usdValue: "4832.50",
-    gasUsed: "21000",
-    gasFee: "0.0045",
-    timestamp: new Date(Date.now() - 15 * 60 * 1000),
-    walletAddress: "0x1a2b3c4d5e6f7g8h9i0j1k2l3m4n5o6p7q8r9s0t",
-    chain: "ethereum",
-    walletLabel: "Main Wallet",
-    status: "confirmed",
-  },
-  {
-    id: "2",
-    walletId: "wallet-1",
-    transactionHash: "0x2b3c4d5e6f7g8h9i0j1k2l3m4n5o6p7q8r9s0t1u2v3w4x5y6z7a8b9c0d1e2f3g",
-    blockNumber: 18500089,
-    eventType: "transfer",
-    fromAddress: "0x742d35Cc6634C0532925a3b8D4C9db4C4C4C4C4C",
-    toAddress: "0x1a2b3c4d5e6f7g8h9i0j1k2l3m4n5o6p7q8r9s0t",
-    tokenAddress: "0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599",
-    tokenSymbol: "WBTC",
-    tokenName: "Wrapped Bitcoin",
-    amount: "0.8",
-    usdValue: "32100.00",
-    gasUsed: "21000",
-    gasFee: "0.0032",
-    timestamp: new Date(Date.now() - 45 * 60 * 1000),
-    walletAddress: "0x1a2b3c4d5e6f7g8h9i0j1k2l3m4n5o6p7q8r9s0t",
-    chain: "ethereum",
-    walletLabel: "Main Wallet",
-    status: "confirmed",
-  },
-  {
-    id: "3",
-    walletId: "wallet-2",
-    transactionHash: "0x3c4d5e6f7g8h9i0j1k2l3m4n5o6p7q8r9s0t1u2v3w4x5y6z7a8b9c0d1e2f3g4h",
-    blockNumber: 18499876,
-    eventType: "deposit",
-    fromAddress: "0x1a2b3c4d5e6f7g8h9i0j1k2l3m4n5o6p7q8r9s0t",
-    toAddress: "0xc00e94Cb662C3520282E6f5717214004A7f26888",
-    tokenAddress: "0xA0b86a33E6441b8C4C4C4C4C4C4C4C4C4C4C4C4C",
-    tokenSymbol: "USDC",
-    tokenName: "USD Coin",
-    amount: "1000.00",
-    usdValue: "1000.00",
-    gasUsed: "45000",
-    gasFee: "0.0078",
-    timestamp: new Date(Date.now() - 2 * 60 * 60 * 1000),
-    walletAddress: "0x2b3c4d5e6f7g8h9i0j1k2l3m4n5o6p7q8r9s0t1u",
-    chain: "ethereum",
-    walletLabel: "DeFi Wallet",
-    status: "confirmed",
-  },
-  {
-    id: "4",
-    walletId: "wallet-1",
-    transactionHash: "0x4d5e6f7g8h9i0j1k2l3m4n5o6p7q8r9s0t1u2v3w4x5y6z7a8b9c0d1e2f3g4h5i",
-    blockNumber: 18499654,
-    eventType: "withdrawal",
-    fromAddress: "0xc00e94Cb662C3520282E6f5717214004A7f26888",
-    toAddress: "0x1a2b3c4d5e6f7g8h9i0j1k2l3m4n5o6p7q8r9s0t",
-    tokenAddress: "0x514910771AF9Ca656af840dff83E8264EcF986CA",
-    tokenSymbol: "LINK",
-    tokenName: "Chainlink",
-    amount: "500.00",
-    usdValue: "7250.00",
-    gasUsed: "35000",
-    gasFee: "0.0056",
-    timestamp: new Date(Date.now() - 4 * 60 * 60 * 1000),
-    walletAddress: "0x1a2b3c4d5e6f7g8h9i0j1k2l3m4n5o6p7q8r9s0t",
-    chain: "ethereum",
-    walletLabel: "Main Wallet",
-    status: "confirmed",
-  },
-  {
-    id: "5",
-    walletId: "wallet-3",
-    transactionHash: "0x5e6f7g8h9i0j1k2l3m4n5o6p7q8r9s0t1u2v3w4x5y6z7a8b9c0d1e2f3g4h5i6j",
-    blockNumber: 45123456,
-    eventType: "swap",
-    fromAddress: "0x1a2b3c4d5e6f7g8h9i0j1k2l3m4n5o6p7q8r9s0t",
-    toAddress: "0x1f9840a85d5aF5bf1D1762F925BDADdC4201F984",
-    tokenAddress: "0x7D1AfA7B718fb893dB30A3aBc0Cfc608AaCfeBB0",
-    tokenSymbol: "MATIC",
-    tokenName: "Polygon",
-    amount: "2500.00",
-    usdValue: "1875.00",
-    gasUsed: "21000",
-    gasFee: "0.025",
-    timestamp: new Date(Date.now() - 6 * 60 * 60 * 1000),
-    walletAddress: "0x3c4d5e6f7g8h9i0j1k2l3m4n5o6p7q8r9s0t1u2v",
-    chain: "polygon",
-    walletLabel: "Polygon Wallet",
-    status: "confirmed",
-  },
-  {
-    id: "6",
-    walletId: "wallet-1",
-    transactionHash: "0x6f7g8h9i0j1k2l3m4n5o6p7q8r9s0t1u2v3w4x5y6z7a8b9c0d1e2f3g4h5i6j7k",
-    blockNumber: 18499321,
-    eventType: "transfer",
-    fromAddress: "0x1a2b3c4d5e6f7g8h9i0j1k2l3m4n5o6p7q8r9s0t",
-    toAddress: "0x742d35Cc6634C0532925a3b8D4C9db4C4C4C4C4C",
-    tokenAddress: "0x1f9840a85d5aF5bf1D1762F925BDADdC4201F984",
-    tokenSymbol: "UNI",
-    tokenName: "Uniswap",
-    amount: "150.00",
-    usdValue: "1050.00",
-    gasUsed: "21000",
-    gasFee: "0.0041",
-    timestamp: new Date(Date.now() - 8 * 60 * 60 * 1000),
-    walletAddress: "0x1a2b3c4d5e6f7g8h9i0j1k2l3m4n5o6p7q8r9s0t",
-    chain: "ethereum",
-    walletLabel: "Main Wallet",
-    status: "confirmed",
-  },
-]
+// Transactions are now fetched via useTransactions hook
 
 type SortField = "timestamp" | "usdValue" | "tokenSymbol" | "eventType"
 type SortDirection = "asc" | "desc"
@@ -256,13 +130,17 @@ function getChainBadgeColor(chain: string) {
       return "bg-cyan-500/10 text-cyan-500 border-cyan-500/20"
     case "optimism":
       return "bg-red-500/10 text-red-500 border-red-500/20"
+    case "base":
+      return "bg-blue-600/10 text-blue-600 border-blue-600/20"
     default:
       return "bg-gray-500/10 text-gray-500 border-gray-500/20"
   }
 }
 
 export function TransactionHistory() {
-  const [transactions] = useState<Transaction[]>(mockTransactions)
+  const { wallets, loading: walletsLoading } = useWallets()
+  const selectedWalletAddress = wallets.length > 0 ? wallets[0].address : undefined
+  const { transactions, loading: transactionsLoading, error: transactionsError, refetch } = useTransactions(selectedWalletAddress)
   const [searchQuery, setSearchQuery] = useState("")
   const [eventTypeFilter, setEventTypeFilter] = useState<string>("all")
   const [chainFilter, setChainFilter] = useState<string>("all")
@@ -372,6 +250,15 @@ export function TransactionHistory() {
             <Filter className="mr-2 h-4 w-4" />
             Filters
           </Button>
+          <Button 
+            onClick={refetch} 
+            variant="outline" 
+            size="sm"
+            disabled={transactionsLoading}
+          >
+            <RefreshCw className={`mr-2 h-4 w-4 ${transactionsLoading ? 'animate-spin' : ''}`} />
+            Refresh
+          </Button>
           <Button onClick={exportToCSV} variant="outline" size="sm">
             <Download className="mr-2 h-4 w-4" />
             Export CSV
@@ -379,8 +266,36 @@ export function TransactionHistory() {
         </div>
       </div>
 
+      {/* Error Display */}
+      {transactionsError && (
+        <Card className="border-destructive/50 bg-destructive/5">
+          <CardContent className="p-4">
+            <div className="flex items-center gap-2 text-destructive">
+              <div className="w-4 h-4 rounded-full bg-destructive flex items-center justify-center">
+                <span className="text-xs text-destructive-foreground">!</span>
+              </div>
+              <p className="text-sm font-medium">Error loading transactions</p>
+            </div>
+            <p className="text-xs text-muted-foreground mt-1">{transactionsError}</p>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Loading State */}
+      {(walletsLoading || transactionsLoading) && (
+        <Card>
+          <CardContent className="p-8">
+            <div className="flex flex-col items-center gap-2 text-muted-foreground">
+              <RefreshCw className="h-8 w-8 animate-spin" />
+              <p className="text-sm font-medium">Loading transactions...</p>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Summary Cards */}
-      <div className="grid gap-4 md:grid-cols-4">
+      {!walletsLoading && !transactionsLoading && (
+        <div className="grid gap-4 md:grid-cols-4">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Total Transactions</CardTitle>
@@ -422,7 +337,8 @@ export function TransactionHistory() {
             <p className="text-xs text-muted-foreground">Networks used</p>
           </CardContent>
         </Card>
-      </div>
+        </div>
+      )}
 
       {/* Filters */}
       {showFilters && (
@@ -488,7 +404,7 @@ export function TransactionHistory() {
                     mode="range"
                     defaultMonth={dateRange.from}
                     selected={dateRange}
-                    onSelect={(range) => setDateRange(range || { from: undefined, to: undefined })}
+                    onSelect={(range) => setDateRange({ from: range?.from, to: range?.to })}
                     numberOfMonths={2}
                   />
                 </PopoverContent>
@@ -593,7 +509,20 @@ export function TransactionHistory() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filteredAndSortedTransactions.map((transaction) => (
+                {filteredAndSortedTransactions.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={10} className="text-center py-8">
+                      <div className="flex flex-col items-center gap-2 text-muted-foreground">
+                        <div className="w-12 h-12 rounded-full bg-muted flex items-center justify-center">
+                          <RefreshCw className="h-6 w-6" />
+                        </div>
+                        <p className="text-sm font-medium">No transactions found</p>
+                        <p className="text-xs">Your transaction history will appear here once you start using your wallets.</p>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  filteredAndSortedTransactions.map((transaction) => (
                   <TableRow key={transaction.id}>
                     <TableCell>
                       <div className="flex flex-col">
@@ -688,7 +617,8 @@ export function TransactionHistory() {
                       </DropdownMenu>
                     </TableCell>
                   </TableRow>
-                ))}
+                  ))
+                )}
               </TableBody>
             </Table>
           </div>

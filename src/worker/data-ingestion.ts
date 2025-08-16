@@ -21,8 +21,8 @@ class DataIngestionWorker {
     try {
       logger.info('Starting wallet data sync cycle');
 
-      // Get all wallets
-      const walletsResult = await pool.query('SELECT * FROM wallets');
+      // Get all active user wallets
+      const walletsResult = await pool.query('SELECT * FROM user_wallets WHERE status = \'active\'');
       
       for (const wallet of walletsResult.rows) {
         await this.syncWalletData(wallet);
@@ -54,45 +54,53 @@ class DataIngestionWorker {
     try {
       const balances = await cdpService.getWalletBalances(wallet.address, wallet.chain);
 
+      // Calculate total USD value
+      let totalUsdValue = 0;
+      const balanceEntries = [];
+
       for (const balance of balances) {
         // Get current price if not available
         let pricePerToken = 0;
+        let usdValue = 0;
+        
         if (balance.usd_value && parseFloat(balance.amount) > 0) {
           pricePerToken = parseFloat(balance.usd_value.amount) / parseFloat(balance.amount);
+          usdValue = parseFloat(balance.usd_value.amount);
         } else {
           // Fetch price from CDP
           try {
             const price = await cdpService.getTokenPrice(balance.currency.code);
             pricePerToken = parseFloat(price.amount);
+            usdValue = parseFloat(balance.amount) * pricePerToken;
           } catch (error) {
             logger.warn(`Failed to get price for ${balance.currency.code}:`, error);
           }
         }
 
-        // Insert balance snapshot
-        await pool.query(`
-          INSERT INTO asset_snapshots (
-            wallet_id, 
-            token_address, 
-            token_symbol, 
-            token_name, 
-            balance, 
-            usd_value, 
-            price_per_token
-          )
-          VALUES ($1, $2, $3, $4, $5, $6, $7)
-        `, [
-          wallet.id,
-          balance.currency.address,
-          balance.currency.code,
-          balance.currency.name,
-          balance.amount,
-          balance.usd_value?.amount || (parseFloat(balance.amount) * pricePerToken).toString(),
-          pricePerToken
-        ]);
+        totalUsdValue += usdValue;
+        balanceEntries.push({
+          symbol: balance.currency.code,
+          name: balance.currency.name,
+          address: balance.currency.address,
+          balance: balance.amount,
+          usd_value: usdValue.toString(),
+          price_per_token: pricePerToken
+        });
       }
 
-      logger.info(`Stored ${balances.length} balance entries for wallet ${wallet.address}`);
+      // Store wallet balance snapshot in new format
+      await pool.query(`
+        INSERT INTO wallet_balances (address, payload)
+        VALUES ($1, $2)
+      `, [
+        wallet.address,
+        JSON.stringify({
+          total_usd_value: totalUsdValue.toString(),
+          balances: balanceEntries
+        })
+      ]);
+
+      logger.info(`Stored balance snapshot for wallet ${wallet.address} with total value $${totalUsdValue.toFixed(2)}`);
     } catch (error) {
       logger.error(`Error syncing balances for wallet ${wallet.address}:`, error);
     }
@@ -105,7 +113,7 @@ class DataIngestionWorker {
       for (const tx of transactions) {
         // Check if transaction already exists
         const existingTx = await pool.query(
-          'SELECT id FROM chain_events WHERE transaction_hash = $1',
+          'SELECT id FROM wallet_events WHERE tx_hash = $1',
           [tx.hash]
         );
 
@@ -113,10 +121,15 @@ class DataIngestionWorker {
           continue; // Skip if already exists
         }
 
-        // Determine event type based on transaction data
-        let eventType = 'transfer';
+        // Determine event kind based on transaction data
+        let kind = 'other';
+        if (tx.from_address?.toLowerCase() === wallet.address.toLowerCase()) {
+          kind = 'transfer_out';
+        } else if (tx.to_address?.toLowerCase() === wallet.address.toLowerCase()) {
+          kind = 'transfer_in';
+        }
         if (tx.type && tx.type.toLowerCase().includes('swap')) {
-          eventType = 'swap';
+          kind = 'swap';
         }
 
         // Calculate USD value if available
@@ -130,30 +143,32 @@ class DataIngestionWorker {
           }
         }
 
-        // Insert transaction
+        // Insert transaction in new format
         await pool.query(`
-          INSERT INTO chain_events (
-            wallet_id,
-            transaction_hash,
-            block_number,
-            event_type,
-            from_address,
-            to_address,
-            amount,
-            usd_value,
-            timestamp
+          INSERT INTO wallet_events (
+            address,
+            occurred_at,
+            kind,
+            tx_hash,
+            chain,
+            details
           )
-          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+          VALUES ($1, $2, $3, $4, $5, $6)
         `, [
-          wallet.id,
+          wallet.address,
+          new Date(tx.block_timestamp),
+          kind,
           tx.hash,
-          tx.block_height,
-          eventType,
-          tx.from_address,
-          tx.to_address,
-          tx.value?.amount || '0',
-          usdValue,
-          new Date(tx.block_timestamp)
+          wallet.chain,
+          JSON.stringify({
+            block_height: tx.block_height,
+            from_address: tx.from_address,
+            to_address: tx.to_address,
+            amount: tx.value?.amount || '0',
+            currency: tx.value?.currency,
+            usd_value: usdValue,
+            type: tx.type
+          })
         ]);
       }
 
@@ -165,16 +180,16 @@ class DataIngestionWorker {
 
   async cleanupOldData(): Promise<void> {
     try {
-      // Keep only last 30 days of asset snapshots
+      // Keep only last 30 days of wallet balance snapshots
       await pool.query(`
-        DELETE FROM asset_snapshots 
-        WHERE timestamp < NOW() - INTERVAL '30 days'
+        DELETE FROM wallet_balances 
+        WHERE as_of < NOW() - INTERVAL '30 days'
       `);
 
-      // Keep only last 90 days of chain events
+      // Keep only last 90 days of wallet events
       await pool.query(`
-        DELETE FROM chain_events 
-        WHERE timestamp < NOW() - INTERVAL '90 days'
+        DELETE FROM wallet_events 
+        WHERE occurred_at < NOW() - INTERVAL '90 days'
       `);
 
       // Keep only last 30 days of rule evaluations

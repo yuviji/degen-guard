@@ -13,63 +13,95 @@ portfolioRoutes.get('/overview', async (req, res) => {
       return res.status(401).json({ error: 'Authentication required' });
     }
 
-    // Get total portfolio value
+    // Get total portfolio value from latest wallet balance
     const totalValueResult = await pool.query(`
       SELECT 
-        COALESCE(SUM(a.usd_value), 0) as total_usd_value,
-        COUNT(DISTINCT a.token_symbol) as token_count
-      FROM wallets w
-      JOIN asset_snapshots a ON w.id = a.wallet_id
-      WHERE w.user_id = $1 
-        AND a.timestamp >= NOW() - INTERVAL '1 hour'
+        COALESCE((wb.payload->>'total_usd_value')::DECIMAL, 0) as total_usd_value,
+        COALESCE(jsonb_array_length(wb.payload->'balances'), 0) as token_count
+      FROM user_wallets uw
+      JOIN LATERAL (
+        SELECT payload 
+        FROM wallet_balances 
+        WHERE address = uw.address 
+        ORDER BY as_of DESC 
+        LIMIT 1
+      ) wb ON true
+      WHERE uw.user_id = $1 AND uw.status = 'active'
     `, [userId]);
 
-    // Get stablecoin allocation
+    // Get stablecoin allocation from wallet balance payload
     const stablecoinResult = await pool.query(`
       SELECT 
-        COALESCE(SUM(CASE WHEN a.token_symbol IN ('USDC', 'USDT', 'DAI', 'BUSD', 'FRAX') THEN a.usd_value ELSE 0 END), 0) as stablecoin_value,
-        COALESCE(SUM(a.usd_value), 0) as total_value
-      FROM wallets w
-      JOIN asset_snapshots a ON w.id = a.wallet_id
-      WHERE w.user_id = $1 
-        AND a.timestamp >= NOW() - INTERVAL '1 hour'
+        COALESCE(
+          (SELECT SUM((balance->>'usd_value')::DECIMAL)
+           FROM jsonb_array_elements(wb.payload->'balances') AS balance
+           WHERE balance->>'symbol' IN ('USDC', 'USDT', 'DAI', 'BUSD', 'FRAX')), 0
+        ) as stablecoin_value,
+        COALESCE((wb.payload->>'total_usd_value')::DECIMAL, 0) as total_value
+      FROM user_wallets uw
+      JOIN LATERAL (
+        SELECT payload 
+        FROM wallet_balances 
+        WHERE address = uw.address 
+        ORDER BY as_of DESC 
+        LIMIT 1
+      ) wb ON true
+      WHERE uw.user_id = $1 AND uw.status = 'active'
     `, [userId]);
 
-    // Get asset allocations
+    // Get asset allocations from wallet balance payload
     const allocationsResult = await pool.query(`
       SELECT 
-        a.token_symbol as symbol,
-        SUM(a.usd_value) as usd_value,
+        balance->>'symbol' as symbol,
+        (balance->>'usd_value')::DECIMAL as usd_value,
         CASE 
-          WHEN SUM(SUM(a.usd_value)) OVER() > 0 THEN 
-            (SUM(a.usd_value) / SUM(SUM(a.usd_value)) OVER()) * 100
+          WHEN (wb.payload->>'total_usd_value')::DECIMAL > 0 THEN 
+            ((balance->>'usd_value')::DECIMAL / (wb.payload->>'total_usd_value')::DECIMAL) * 100
           ELSE 0 
         END as allocation_pct
-      FROM wallets w
-      JOIN asset_snapshots a ON w.id = a.wallet_id
-      WHERE w.user_id = $1 
-        AND a.timestamp >= NOW() - INTERVAL '1 hour'
-        AND a.usd_value > 0
-      GROUP BY a.token_symbol
-      ORDER BY usd_value DESC
+      FROM user_wallets uw
+      JOIN LATERAL (
+        SELECT payload 
+        FROM wallet_balances 
+        WHERE address = uw.address 
+        ORDER BY as_of DESC 
+        LIMIT 1
+      ) wb ON true,
+      jsonb_array_elements(wb.payload->'balances') AS balance
+      WHERE uw.user_id = $1 AND uw.status = 'active'
+        AND (balance->>'usd_value')::DECIMAL > 0
+      ORDER BY (balance->>'usd_value')::DECIMAL DESC
       LIMIT 10
     `, [userId]);
 
-    // Calculate daily PnL (simplified - would need historical data)
+    // Calculate daily PnL from wallet balance history
     const dailyPnlResult = await pool.query(`
       SELECT 
         COALESCE(
-          (SUM(current_val.usd_value) - SUM(prev_val.usd_value)) / NULLIF(SUM(prev_val.usd_value), 0) * 100,
+          CASE 
+            WHEN prev_balance.total_value > 0 THEN
+              ((current_balance.total_value - prev_balance.total_value) / prev_balance.total_value) * 100
+            ELSE 0
+          END,
           0
         ) as daily_pnl_pct
-      FROM wallets w
-      LEFT JOIN asset_snapshots current_val ON w.id = current_val.wallet_id 
-        AND current_val.timestamp >= NOW() - INTERVAL '1 hour'
-      LEFT JOIN asset_snapshots prev_val ON w.id = prev_val.wallet_id 
-        AND prev_val.timestamp >= NOW() - INTERVAL '25 hours'
-        AND prev_val.timestamp < NOW() - INTERVAL '23 hours'
-        AND prev_val.token_symbol = current_val.token_symbol
-      WHERE w.user_id = $1
+      FROM user_wallets uw
+      LEFT JOIN LATERAL (
+        SELECT (payload->>'total_usd_value')::DECIMAL as total_value
+        FROM wallet_balances 
+        WHERE address = uw.address 
+        ORDER BY as_of DESC 
+        LIMIT 1
+      ) current_balance ON true
+      LEFT JOIN LATERAL (
+        SELECT (payload->>'total_usd_value')::DECIMAL as total_value
+        FROM wallet_balances 
+        WHERE address = uw.address 
+          AND as_of <= NOW() - INTERVAL '24 hours'
+        ORDER BY as_of DESC 
+        LIMIT 1
+      ) prev_balance ON true
+      WHERE uw.user_id = $1 AND uw.status = 'active'
     `, [userId]);
 
     const totalValue = parseFloat(totalValueResult.rows[0]?.total_usd_value || '0');
@@ -108,13 +140,12 @@ portfolioRoutes.get('/history', async (req, res) => {
 
     const result = await pool.query(`
       SELECT 
-        DATE_TRUNC('hour', a.timestamp) as timestamp,
-        SUM(a.usd_value) as total_value
-      FROM wallets w
-      JOIN asset_snapshots a ON w.id = a.wallet_id
-      WHERE w.user_id = $1 
-        AND a.timestamp >= NOW() - INTERVAL '${days} days'
-      GROUP BY DATE_TRUNC('hour', a.timestamp)
+        DATE_TRUNC('hour', wb.as_of) as timestamp,
+        (wb.payload->>'total_usd_value')::DECIMAL as total_value
+      FROM user_wallets uw
+      JOIN wallet_balances wb ON uw.address = wb.address
+      WHERE uw.user_id = $1 AND uw.status = 'active'
+        AND wb.as_of >= NOW() - INTERVAL '${days} days'
       ORDER BY timestamp DESC
     `, [userId]);
 
@@ -137,14 +168,13 @@ portfolioRoutes.get('/transactions', async (req, res) => {
 
     const result = await pool.query(`
       SELECT 
-        e.*,
-        w.address as wallet_address,
-        w.chain,
-        w.label as wallet_label
-      FROM wallets w
-      JOIN chain_events e ON w.id = e.wallet_id
-      WHERE w.user_id = $1
-      ORDER BY e.timestamp DESC
+        we.*,
+        uw.address as wallet_address,
+        uw.chain
+      FROM user_wallets uw
+      JOIN wallet_events we ON uw.address = we.address
+      WHERE uw.user_id = $1 AND uw.status = 'active'
+      ORDER BY we.occurred_at DESC
       LIMIT $2
     `, [userId, limit]);
 

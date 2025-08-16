@@ -84,14 +84,14 @@ export const walletsApi = {
       body: JSON.stringify({ address, chain, label }),
     }),
   
-  getBalances: (walletId: string) =>
-    apiRequest<Array<any>>(`/api/wallets/${walletId}/balances`),
+  getBalances: (address: string) =>
+    apiRequest<Array<any>>(`/api/wallets/${address}/balances`),
   
-  getTransactions: (walletId: string, limit: number = 50) =>
-    apiRequest<Array<any>>(`/api/wallets/${walletId}/transactions?limit=${limit}`),
+  getTransactions: (address: string, limit: number = 50) =>
+    apiRequest<Array<any>>(`/api/wallets/${address}/transactions?limit=${limit}`),
   
-  delete: (walletId: string) =>
-    apiRequest<{ message: string }>(`/api/wallets/${walletId}`, { method: 'DELETE' }),
+  delete: (address: string) =>
+    apiRequest<{ message: string }>(`/api/wallets/${address}`, { method: 'DELETE' }),
 };
 
 // Rules API

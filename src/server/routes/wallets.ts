@@ -3,6 +3,7 @@ import pool from '../../database/connection';
 import cdpService from '../services/cdp';
 import { Wallet } from '@/shared/types';
 import { getUserId } from '../../lib/session';
+import { transactionHistoryService } from '../services/transaction-history';
 
 export const walletRoutes = express.Router();
 
@@ -15,7 +16,7 @@ walletRoutes.get('/', async (req, res) => {
     }
 
     const result = await pool.query(
-      'SELECT * FROM wallets WHERE user_id = $1 ORDER BY created_at DESC',
+      'SELECT * FROM user_wallets WHERE user_id = $1 ORDER BY created_at DESC',
       [userId]
     );
 
@@ -26,7 +27,7 @@ walletRoutes.get('/', async (req, res) => {
   }
 });
 
-// Add a new wallet
+// Create a new server-managed wallet (CDP-based)
 walletRoutes.post('/', async (req, res) => {
   try {
     const userId = getUserId(req);
@@ -34,74 +35,82 @@ walletRoutes.post('/', async (req, res) => {
       return res.status(401).json({ error: 'Authentication required' });
     }
 
-    const { address, chain, label } = req.body;
-
-    if (!address || !chain) {
-      return res.status(400).json({ error: 'Address and chain are required' });
-    }
-
-    // Validate address format
-    const isValid = await cdpService.validateAddress(address, chain);
-    if (!isValid) {
-      return res.status(400).json({ error: 'Invalid wallet address' });
-    }
-
-    const result = await pool.query(
-      `INSERT INTO wallets (user_id, address, chain, label) 
-       VALUES ($1, $2, $3, $4) 
-       RETURNING *`,
-      [userId, address, chain, label]
+    // Check if user already has a server wallet
+    const existing = await pool.query(
+      `SELECT address FROM user_wallets WHERE user_id = $1 AND type = 'server'`,
+      [userId]
     );
 
-    res.status(201).json(result.rows[0]);
-  } catch (error) {
-    console.error('Error adding wallet:', error);
-    if ((error as any).code === '23505') { // Unique constraint violation
-      res.status(409).json({ error: 'Wallet already exists' });
-    } else {
-      res.status(500).json({ error: 'Failed to add wallet' });
+    if (existing.rows.length > 0) {
+      return res.json({ 
+        address: existing.rows[0].address,
+        message: 'Wallet already exists' 
+      });
     }
+
+    // Redirect to CDP onboarding endpoint by making internal call
+    try {
+      const { cdp, EVM_NETWORK } = require('../../lib/cdp');
+      
+      // Create a new EVM account using CDP SDK
+      const account = await cdp.evm.createAccount({ name: `wallet-${Date.now()}` });
+      const addressString = account.address.toLowerCase();
+
+      // Store in database
+      await pool.query(
+        `INSERT INTO user_wallets(user_id, type, cdp_wallet_id, address, chain, status)
+         VALUES ($1, 'server', $2, $3, $4, 'provisioned')
+         ON CONFLICT (user_id, type) DO NOTHING`,
+        [userId, null, addressString, 'base']
+      );
+
+      res.status(201).json({ 
+        address: addressString,
+        message: 'Wallet created successfully' 
+      });
+    } catch (cdpError) {
+      console.error('CDP wallet creation error:', cdpError);
+      res.status(500).json({ error: 'Failed to create wallet via CDP' });
+    }
+  } catch (error) {
+    console.error('Error creating wallet:', error);
+    res.status(500).json({ error: 'Failed to create wallet' });
   }
 });
 
 // Get wallet balances
-walletRoutes.get('/:walletId/balances', async (req, res) => {
+walletRoutes.get('/:address/balances', async (req, res) => {
   try {
-    const { walletId } = req.params;
+    const { address } = req.params;
+    const userId = getUserId(req);
+    if (!userId) {
+      return res.status(401).json({ error: 'Authentication required' });
+    }
 
-    // Get wallet info
+    // Verify wallet belongs to user
     const walletResult = await pool.query(
-      'SELECT * FROM wallets WHERE id = $1',
-      [walletId]
+      'SELECT * FROM user_wallets WHERE address = $1 AND user_id = $2',
+      [address, userId]
     );
 
     if (walletResult.rows.length === 0) {
       return res.status(404).json({ error: 'Wallet not found' });
     }
 
-    const wallet = walletResult.rows[0];
+    // Get latest balance snapshot from database
+    const balanceResult = await pool.query(
+      `SELECT payload FROM wallet_balances 
+       WHERE address = $1 
+       ORDER BY as_of DESC 
+       LIMIT 1`,
+      [address]
+    );
 
-    // Fetch balances from CDP
-    const balances = await cdpService.getWalletBalances(wallet.address, wallet.chain);
-
-    // Store balances in database
-    for (const balance of balances) {
-      await pool.query(
-        `INSERT INTO asset_snapshots (wallet_id, token_address, token_symbol, token_name, balance, usd_value, price_per_token)
-         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-        [
-          walletId,
-          balance.currency.address,
-          balance.currency.code,
-          balance.currency.name,
-          balance.amount,
-          balance.usd_value?.amount || '0',
-          balance.usd_value ? parseFloat(balance.usd_value.amount) / parseFloat(balance.amount) : 0
-        ]
-      );
+    if (balanceResult.rows.length === 0) {
+      return res.status(404).json({ error: 'No balance data found' });
     }
 
-    res.json(balances);
+    res.json(balanceResult.rows[0].payload);
   } catch (error) {
     console.error('Error fetching wallet balances:', error);
     res.status(500).json({ error: 'Failed to fetch wallet balances' });
@@ -109,45 +118,29 @@ walletRoutes.get('/:walletId/balances', async (req, res) => {
 });
 
 // Get wallet transactions
-walletRoutes.get('/:walletId/transactions', async (req, res) => {
+walletRoutes.get('/:address/transactions', async (req, res) => {
   try {
-    const { walletId } = req.params;
+    const { address } = req.params;
     const limit = parseInt(req.query.limit as string) || 50;
+    const refresh = req.query.refresh === 'true';
+    const userId = getUserId(req);
+    if (!userId) {
+      return res.status(401).json({ error: 'Authentication required' });
+    }
 
-    // Get wallet info
+    // Verify wallet belongs to user
     const walletResult = await pool.query(
-      'SELECT * FROM wallets WHERE id = $1',
-      [walletId]
+      'SELECT * FROM user_wallets WHERE address = $1 AND user_id = $2',
+      [address, userId]
     );
 
     if (walletResult.rows.length === 0) {
       return res.status(404).json({ error: 'Wallet not found' });
     }
 
-    const wallet = walletResult.rows[0];
-
-    // Fetch transactions from CDP
-    const transactions = await cdpService.getWalletTransactions(wallet.address, wallet.chain, limit);
-
-    // Store transactions in database
-    for (const tx of transactions) {
-      await pool.query(
-        `INSERT INTO chain_events (wallet_id, transaction_hash, block_number, event_type, from_address, to_address, amount, usd_value)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-         ON CONFLICT (transaction_hash) DO NOTHING`,
-        [
-          walletId,
-          tx.hash,
-          tx.block_height,
-          'transfer', // Default type, could be enhanced
-          tx.from_address,
-          tx.to_address,
-          tx.value?.amount || '0',
-          '0' // Would need price calculation
-        ]
-      );
-    }
-
+    // Use transaction history service to get transactions
+    const transactions = await transactionHistoryService.getTransactions(address, limit, refresh);
+    
     res.json(transactions);
   } catch (error) {
     console.error('Error fetching wallet transactions:', error);
@@ -156,13 +149,17 @@ walletRoutes.get('/:walletId/transactions', async (req, res) => {
 });
 
 // Delete a wallet
-walletRoutes.delete('/:walletId', async (req, res) => {
+walletRoutes.delete('/:address', async (req, res) => {
   try {
-    const { walletId } = req.params;
+    const { address } = req.params;
+    const userId = getUserId(req);
+    if (!userId) {
+      return res.status(401).json({ error: 'Authentication required' });
+    }
 
     const result = await pool.query(
-      'DELETE FROM wallets WHERE id = $1 RETURNING *',
-      [walletId]
+      'DELETE FROM user_wallets WHERE address = $1 AND user_id = $2 RETURNING *',
+      [address, userId]
     );
 
     if (result.rows.length === 0) {

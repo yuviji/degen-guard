@@ -1,5 +1,5 @@
 -- DegenGuard Database Schema
--- Complete schema with both legacy wallet tracking and CDP onboarding tables
+-- CDP-based wallet management with AI-powered monitoring
 
 -- ============================================================================
 -- CORE TABLES
@@ -15,54 +15,10 @@ CREATE TABLE users (
 );
 
 -- ============================================================================
--- LEGACY WALLET TRACKING TABLES (for manually added wallets)
+-- WALLET MANAGEMENT TABLES (CDP-based)
 -- ============================================================================
 
--- Wallets table (for manually added/tracked wallets)
-CREATE TABLE wallets (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    address VARCHAR(42) NOT NULL,
-    chain VARCHAR(50) NOT NULL,
-    label VARCHAR(100),
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    UNIQUE(address, chain)
-);
-
--- Asset snapshots table (for legacy wallet tracking)
-CREATE TABLE asset_snapshots (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    wallet_id UUID NOT NULL REFERENCES wallets(id) ON DELETE CASCADE,
-    token_address VARCHAR(42),
-    token_symbol VARCHAR(20) NOT NULL,
-    token_name VARCHAR(100),
-    balance DECIMAL(36, 18) NOT NULL,
-    usd_value DECIMAL(20, 8),
-    price_per_token DECIMAL(20, 8),
-    timestamp TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-);
-
--- Chain events table (for legacy wallet tracking)
-CREATE TABLE chain_events (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    wallet_id UUID NOT NULL REFERENCES wallets(id) ON DELETE CASCADE,
-    transaction_hash VARCHAR(66) NOT NULL UNIQUE,
-    block_number BIGINT NOT NULL,
-    event_type VARCHAR(20) NOT NULL CHECK (event_type IN ('transfer', 'swap', 'deposit', 'withdrawal')),
-    from_address VARCHAR(42),
-    to_address VARCHAR(42),
-    token_address VARCHAR(42),
-    amount DECIMAL(36, 18),
-    usd_value DECIMAL(20, 8),
-    timestamp TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-);
-
--- ============================================================================
--- CDP ONBOARDING TABLES (for server-managed wallets)
--- ============================================================================
-
--- User wallets table for CDP server wallets
+-- User wallets table for server-managed wallets
 CREATE TABLE user_wallets (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -77,7 +33,7 @@ CREATE TABLE user_wallets (
     UNIQUE(address)
 );
 
--- Wallet balances snapshots (CDP format)
+-- Wallet balances snapshots
 CREATE TABLE wallet_balances (
     id BIGSERIAL PRIMARY KEY,
     address TEXT NOT NULL,
@@ -85,7 +41,7 @@ CREATE TABLE wallet_balances (
     payload JSONB NOT NULL
 );
 
--- Wallet events for transactions and activities (CDP format)
+-- Wallet events for transactions and activities
 CREATE TABLE wallet_events (
     id BIGSERIAL PRIMARY KEY,
     address TEXT NOT NULL,
@@ -136,16 +92,7 @@ CREATE TABLE alerts (
 -- INDEXES
 -- ============================================================================
 
--- Legacy wallet indexes
-CREATE INDEX idx_wallets_user_id ON wallets(user_id);
-CREATE INDEX idx_wallets_address_chain ON wallets(address, chain);
-CREATE INDEX idx_asset_snapshots_wallet_id ON asset_snapshots(wallet_id);
-CREATE INDEX idx_asset_snapshots_timestamp ON asset_snapshots(timestamp);
-CREATE INDEX idx_chain_events_wallet_id ON chain_events(wallet_id);
-CREATE INDEX idx_chain_events_timestamp ON chain_events(timestamp);
-CREATE INDEX idx_chain_events_tx_hash ON chain_events(transaction_hash);
-
--- CDP onboarding indexes
+-- Wallet management indexes
 CREATE INDEX idx_user_wallets_user_id ON user_wallets(user_id);
 CREATE INDEX idx_user_wallets_address ON user_wallets(address);
 CREATE INDEX idx_user_wallets_status ON user_wallets(status);
@@ -167,34 +114,36 @@ CREATE INDEX idx_alerts_acknowledged ON alerts(acknowledged);
 -- VIEWS
 -- ============================================================================
 
--- Portfolio metrics view (legacy wallets)
+-- Portfolio metrics view (CDP-based)
 CREATE OR REPLACE VIEW portfolio_metrics AS
 SELECT 
-    w.user_id,
-    w.id as wallet_id,
-    SUM(a.usd_value) as total_usd_value,
-    COUNT(DISTINCT a.token_symbol) as token_count
-FROM wallets w
-JOIN asset_snapshots a ON w.id = a.wallet_id
-WHERE a.timestamp >= NOW() - INTERVAL '1 hour'
-GROUP BY w.user_id, w.id;
+    uw.user_id,
+    uw.address,
+    (wb.payload->>'total_usd_value')::DECIMAL as total_usd_value,
+    jsonb_array_length(wb.payload->'balances') as token_count
+FROM user_wallets uw
+JOIN LATERAL (
+    SELECT payload 
+    FROM wallet_balances 
+    WHERE address = uw.address 
+    ORDER BY as_of DESC 
+    LIMIT 1
+) wb ON true
+WHERE uw.status = 'active';
 
--- Stablecoin allocations view (legacy wallets)
-CREATE OR REPLACE VIEW stablecoin_allocations AS
+-- Recent wallet activity view
+CREATE OR REPLACE VIEW recent_wallet_activity AS
 SELECT 
-    w.user_id,
-    w.id as wallet_id,
-    SUM(CASE WHEN a.token_symbol IN ('USDC', 'USDT', 'DAI', 'BUSD', 'FRAX') THEN a.usd_value ELSE 0 END) as stablecoin_value,
-    SUM(a.usd_value) as total_value,
-    CASE 
-        WHEN SUM(a.usd_value) > 0 THEN 
-            (SUM(CASE WHEN a.token_symbol IN ('USDC', 'USDT', 'DAI', 'BUSD', 'FRAX') THEN a.usd_value ELSE 0 END) / SUM(a.usd_value)) * 100
-        ELSE 0 
-    END as stablecoin_allocation_pct
-FROM wallets w
-JOIN asset_snapshots a ON w.id = a.wallet_id
-WHERE a.timestamp >= NOW() - INTERVAL '1 hour'
-GROUP BY w.user_id, w.id;
+    uw.user_id,
+    we.address,
+    we.occurred_at,
+    we.kind,
+    we.tx_hash,
+    we.details
+FROM user_wallets uw
+JOIN wallet_events we ON uw.address = we.address
+WHERE we.occurred_at >= NOW() - INTERVAL '24 hours'
+ORDER BY we.occurred_at DESC;
 
 -- ============================================================================
 -- FUNCTIONS AND TRIGGERS
@@ -211,5 +160,4 @@ $$ language 'plpgsql';
 
 -- Triggers for updated_at
 CREATE TRIGGER update_users_updated_at BEFORE UPDATE ON users FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
-CREATE TRIGGER update_wallets_updated_at BEFORE UPDATE ON wallets FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 CREATE TRIGGER update_rules_updated_at BEFORE UPDATE ON rules FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
