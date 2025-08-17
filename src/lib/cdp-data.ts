@@ -1,4 +1,5 @@
 import { CdpClient } from "@coinbase/cdp-sdk";
+import { Alchemy, Network } from "alchemy-sdk";
 import * as dotenv from "dotenv";
 import { generateCdpJwt } from "./cdp-auth";
 
@@ -10,6 +11,11 @@ if (!process.env.CDP_API_KEY_ID || !process.env.CDP_API_KEY_SECRET) {
 
 // Create CDP client instance for data operations
 export const cdpData = new CdpClient();
+
+// Create Alchemy client instance for pricing data
+const alchemy = new Alchemy({ 
+  apiKey: process.env.ALCHEMY_API_KEY || "demo" 
+});
 
 export const SUPPORTED_NETWORKS = {
   BASE_MAINNET: "base",
@@ -61,118 +67,59 @@ export interface HistoricalBalance {
 }
 
 /**
- * Get ETH price from Alchemy API
+ * Get ETH price from Alchemy SDK
  */
 async function getEthPrice(): Promise<number> {
-  // COMMENTED OUT: Price API queries disabled for dashboard testing
-  /*
   if (!process.env.ALCHEMY_API_KEY) {
     console.warn('ALCHEMY_API_KEY not set, using fallback ETH price');
     return 3200;
   }
 
   try {
-    const url = `https://base-mainnet.g.alchemy.com/v2/${process.env.ALCHEMY_API_KEY}`;
-    const headers = {
-      'Accept': 'application/json',
-      'Content-Type': 'application/json'
-    };
-
-    const body = JSON.stringify({
-      id: 1,
-      jsonrpc: "2.0",
-      method: "alchemy_getTokenPrices",
-      params: [{
-        tokens: ["ETH"]
-      }]
-    });
-
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: headers,
-      body: body
-    });
-
-    if (!response.ok) {
-      console.warn(`Alchemy ETH price request failed: ${response.statusText}`);
-      return 3200; // Fallback price
-    }
-
-    const data = await response.json();
-    const ethPrice = data.result?.data?.find((token: any) => token.symbol === 'ETH')?.price;
-    return ethPrice || 3200;
+    const symbols = ["ETH"];
+    const data = await alchemy.prices.getTokenPriceBySymbol(symbols);
+    
+    const ethPrice = data.data?.find((token: any) => token.symbol === 'ETH')?.prices?.[0]?.value;
+    return ethPrice ? parseFloat(ethPrice) : 3200;
   } catch (error) {
     console.error('Error fetching ETH price from Alchemy:', error);
     return 3200; // Fallback price
   }
-  */
-  
-  // Return mock price for dashboard testing
-  return 3200;
 }
 
 /**
- * Get token prices from Alchemy API
+ * Get token prices from Alchemy SDK
  */
 async function getTokenPrices(contractAddresses: string[]): Promise<Map<string, number>> {
   const priceMap = new Map<string, number>();
   
-  // COMMENTED OUT: Price API queries disabled for dashboard testing
-  /*
   if (contractAddresses.length === 0 || !process.env.ALCHEMY_API_KEY) {
     return priceMap;
   }
 
   try {
-    const url = `https://base-mainnet.g.alchemy.com/v2/${process.env.ALCHEMY_API_KEY}`;
-    const headers = {
-      'Accept': 'application/json',
-      'Content-Type': 'application/json'
-    };
+    // Format addresses for Alchemy SDK - using Base network
+    const addresses = contractAddresses.map(address => ({
+      network: Network.BASE_MAINNET,
+      address: address
+    }));
 
-    const body = JSON.stringify({
-      id: 1,
-      jsonrpc: "2.0",
-      method: "alchemy_getTokenPrices",
-      params: [{
-        tokens: contractAddresses
-      }]
-    });
-
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: headers,
-      body: body
-    });
-
-    if (!response.ok) {
-      console.warn(`Alchemy token prices request failed: ${response.statusText}`);
-      return priceMap;
-    }
-
-    const data = await response.json();
-    const tokenPrices = data.result?.data || [];
+    const data = await alchemy.prices.getTokenPriceByAddress(addresses);
     
     // Map contract addresses to USD prices
-    tokenPrices.forEach((tokenData: any) => {
-      if (tokenData?.address && tokenData?.price) {
-        priceMap.set(tokenData.address.toLowerCase(), tokenData.price);
-      }
-    });
+    if (data.data) {
+      data.data.forEach((tokenData: any) => {
+        if (tokenData?.address && tokenData?.prices?.[0]?.value) {
+          priceMap.set(tokenData.address.toLowerCase(), parseFloat(tokenData.prices[0].value));
+        }
+      });
+    }
 
     return priceMap;
   } catch (error) {
     console.error('Error fetching token prices from Alchemy:', error);
     return priceMap;
   }
-  */
-  
-  // Return mock prices for dashboard testing
-  contractAddresses.forEach(addr => {
-    priceMap.set(addr.toLowerCase(), 1.0); // Mock $1 price for all tokens
-  });
-  
-  return priceMap;
 }
 
 /**
@@ -250,14 +197,8 @@ export async function getTokenBalances(
       };
     });
 
-    // COMMENTED OUT: Price enrichment disabled for dashboard testing
-    // return await enrichWithAlchemyPrices(balances, address, network);
-    
-    // Return balances with mock USD values for dashboard testing
-    return balances.map(balance => ({
-      ...balance,
-      usdValue: balance.humanReadableAmount * 1.0 // Mock $1 price
-    }));
+    // Enrich with real Alchemy prices
+    return await enrichWithAlchemyPrices(balances, address, network);
   } catch (error) {
     console.error(`Error fetching token balances for ${address}:`, error);
     throw error;

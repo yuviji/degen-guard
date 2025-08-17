@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useAuth } from '@/contexts/auth-context';
 
 interface Account {
   id: string;
@@ -23,8 +24,14 @@ export function useAccounts(): UseAccountsResult {
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const { session } = useAuth();
 
   const fetchAccounts = async () => {
+    if (!session?.access_token) {
+      setError('Authentication required');
+      return;
+    }
+
     setLoading(true);
     setError(null);
 
@@ -34,14 +41,20 @@ export function useAccounts(): UseAccountsResult {
         credentials: 'include',
         headers: {
           'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.access_token}`,
         },
       });
 
       if (!response.ok) {
+        const errorText = await response.text();
+        console.error(`API Error ${response.status}:`, errorText);
+        
         if (response.status === 401) {
           throw new Error('Authentication required');
+        } else if (response.status === 404) {
+          throw new Error('Accounts endpoint not found - check server routing');
         } else {
-          throw new Error('Failed to fetch accounts');
+          throw new Error(`Failed to fetch accounts: ${response.status} ${errorText}`);
         }
       }
 
@@ -61,8 +74,10 @@ export function useAccounts(): UseAccountsResult {
   };
 
   useEffect(() => {
-    fetchAccounts();
-  }, []);
+    if (session) {
+      fetchAccounts();
+    }
+  }, [session]);
 
   return {
     accounts,
