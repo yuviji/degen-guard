@@ -1,28 +1,15 @@
 // API service layer for DegenGuard frontend
+import { supabase } from './supabase';
+
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
 
-function getAuthToken(): string | null {
-  if (typeof window !== 'undefined') {
-    return localStorage.getItem('authToken');
-  }
-  return null;
+async function getAuthToken(): Promise<string | null> {
+  const { data: { session } } = await supabase.auth.getSession();
+  return session?.access_token || null;
 }
 
-function getUserIdFromToken(): string | null {
-  const token = getAuthToken();
-  if (!token) return null;
-  
-  try {
-    const payload = JSON.parse(atob(token.split('.')[1]));
-    return payload.userId;
-  } catch (error) {
-    console.error('Error decoding token:', error);
-    return null;
-  }
-}
-
-function getAuthHeaders(): Record<string, string> {
-  const token = getAuthToken();
+async function getAuthHeaders(): Promise<Record<string, string>> {
+  const token = await getAuthToken();
   return token ? { 'Authorization': `Bearer ${token}` } : {};
 }
 
@@ -35,11 +22,12 @@ class ApiError extends Error {
 
 async function apiRequest<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
   const url = `${API_BASE_URL}${endpoint}`;
+  const authHeaders = await getAuthHeaders();
   
   const config: RequestInit = {
     headers: {
       'Content-Type': 'application/json',
-      ...getAuthHeaders(),
+      ...authHeaders,
       ...options.headers,
     },
     ...options,

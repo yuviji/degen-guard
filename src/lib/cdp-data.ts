@@ -1,5 +1,6 @@
 import { CdpClient } from "@coinbase/cdp-sdk";
 import * as dotenv from "dotenv";
+import { generateCdpJwt } from "./cdp-auth";
 
 dotenv.config();
 
@@ -11,9 +12,9 @@ if (!process.env.CDP_API_KEY_ID || !process.env.CDP_API_KEY_SECRET) {
 export const cdpData = new CdpClient();
 
 export const SUPPORTED_NETWORKS = {
-  BASE_MAINNET: "base-mainnet",
-  BASE_SEPOLIA: "base-sepolia",
-  ETHEREUM: "ethereum-mainnet"
+  BASE_MAINNET: "base",
+  BASE_SEPOLIA: "base-sepolia", 
+  ETHEREUM: "ethereum"
 } as const;
 
 export type SupportedNetwork = typeof SUPPORTED_NETWORKS[keyof typeof SUPPORTED_NETWORKS];
@@ -272,17 +273,25 @@ export async function getPortfolioSnapshot(
  */
 export async function queryHistoricalData(sqlQuery: string): Promise<any[]> {
   try {
+    // Generate JWT token for CDP SQL API
+    const token = await generateCdpJwt({
+      requestMethod: 'POST',
+      requestHost: 'api.cdp.coinbase.com',
+      requestPath: '/platform/v2/data/query/run'
+    });
+    
     const response = await fetch('https://api.cdp.coinbase.com/platform/v2/data/query/run', {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${process.env.CDP_API_KEY_ID}`,
+        'Authorization': `Bearer ${token}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({ sql: sqlQuery }),
     });
 
     if (!response.ok) {
-      throw new Error(`SQL API request failed: ${response.statusText}`);
+      const errorText = await response.text();
+      throw new Error(`SQL API request failed: ${response.statusText} - ${errorText}`);
     }
 
     const data = await response.json();
@@ -301,18 +310,15 @@ export async function getHistoricalBalances(
   days: number = 7,
   network: string = 'base'
 ): Promise<HistoricalBalance[]> {
+  // Use corrected SQL API query for Base network transfers
   const sqlQuery = `
     SELECT 
       block_timestamp as timestamp,
-      SUM(CASE 
-        WHEN token_address = '0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE' THEN value / 1e18
-        ELSE 0 
-      END) as eth_balance
-    FROM ${network}.transactions 
-    WHERE to_address = '${address.toLowerCase()}' 
-      OR from_address = '${address.toLowerCase()}'
-      AND block_timestamp >= CURRENT_DATE - INTERVAL '${days}' DAY
-    GROUP BY block_timestamp
+      value / 1e18 as eth_balance
+    FROM base.transfers 
+    WHERE (to_address = '${address.toLowerCase()}' OR from_address = '${address.toLowerCase()}')
+      AND block_timestamp >= now() - INTERVAL ${days} DAY
+      AND event_signature = 'Transfer(address,address,uint256)'
     ORDER BY block_timestamp DESC
     LIMIT 100
   `;
@@ -347,11 +353,9 @@ export async function getTransactionHistory(
       to_address,
       value,
       gas_used,
-      gas_price,
-      status
-    FROM ${network}.transactions 
-    WHERE to_address = '${address.toLowerCase()}' 
-      OR from_address = '${address.toLowerCase()}'
+      gas_price
+    FROM base.transactions 
+    WHERE (to_address = '${address.toLowerCase()}' OR from_address = '${address.toLowerCase()}')
     ORDER BY block_timestamp DESC
     LIMIT ${limit}
   `;
@@ -373,16 +377,15 @@ export async function getDeFiPositions(
 ): Promise<any[]> {
   const sqlQuery = `
     SELECT 
-      e.contract_address,
-      e.event_name,
-      e.decoded_log,
-      t.block_timestamp,
-      t.transaction_hash
-    FROM ${network}.events e
-    JOIN ${network}.transactions t ON e.transaction_hash = t.transaction_hash
-    WHERE e.decoded_log::text LIKE '%${address.toLowerCase()}%'
-      AND e.event_name IN ('Transfer', 'Deposit', 'Withdraw', 'Swap')
-    ORDER BY t.block_timestamp DESC
+      contract_address,
+      event_signature,
+      decoded_log,
+      block_timestamp,
+      transaction_hash
+    FROM base.events 
+    WHERE (decoded_log LIKE '%${address.toLowerCase()}%')
+      AND event_signature IN ('Transfer(address,address,uint256)', 'Deposit(address,uint256)', 'Withdraw(address,uint256)')
+    ORDER BY block_timestamp DESC
     LIMIT 100
   `;
 

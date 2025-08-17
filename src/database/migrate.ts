@@ -1,22 +1,8 @@
-import fs from 'fs';
-import path from 'path';
-import pool from './connection';
+// Migration is now handled by Supabase
+// Schema has been applied directly to the Supabase project
+// This file is kept for reference but migrations are done via Supabase dashboard or API
 
-async function migrate() {
-  try {
-    console.log('Running database migrations...');
-    
-    const schemaPath = path.join(__dirname, 'schema.sql');
-    const schema = fs.readFileSync(schemaPath, 'utf8');
-    
-    await pool.query(schema);
-    
-    console.log('Database migrations completed successfully!');
-    process.exit(0);
-  } catch (error) {
-    console.error('Migration failed:', error);
-    process.exit(1);
-  }
-}
-
-migrate();
+console.log('Migrations are now handled by Supabase.');
+console.log('Schema has been applied to project: ybqsqihcsyqgqnhgbbkj');
+console.log('Visit https://ybqsqihcsyqgqnhgbbkj.supabase.co to manage your database.');
+process.exit(0);

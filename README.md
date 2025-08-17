@@ -11,7 +11,7 @@ AI-powered monitoring and protection layer for DeFi wallets.
 
 ## Tech Stack
 
-- **Frontend**: React + TypeScript + Tailwind CSS
+- **Frontend**: Next.js + TypeScript + Tailwind CSS
 - **Backend**: Express.js + TypeScript
 - **Database**: PostgreSQL
 - **AI**: Gemini for natural language processing

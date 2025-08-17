@@ -1,6 +1,6 @@
 import { CdpClient } from "@coinbase/cdp-sdk";
 import * as dotenv from "dotenv";
-import { db } from "./db";
+import { supabase } from "./supabase";
 
 dotenv.config();
 
@@ -16,24 +16,25 @@ export const EVM_NETWORK = "base";  // Base mainnet
 /**
  * Get user's server wallet information
  */
-export async function getServerWallet(userId: number) {
+export async function getServerWallet(userId: string) {
   try {
-    const { rows } = await db.query(
-      `SELECT address, status, cdp_account_id
-       FROM user_accounts
-       WHERE user_id = $1 AND type = 'server'
-       ORDER BY created_at DESC LIMIT 1`,
-      [userId]
-    );
+    const { data, error } = await supabase
+      .from('user_accounts')
+      .select('address, status, cdp_account_id')
+      .eq('user_id', userId)
+      .eq('type', 'server')
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .single();
 
-    if (!rows.length) {
+    if (error || !data) {
       return null;
     }
 
     return {
-      address: rows[0].address,
-      status: rows[0].status,
-      cdpAccountId: rows[0].cdp_account_id
+      address: data.address,
+      status: data.status,
+      cdpAccountId: data.cdp_account_id
     };
   } catch (error) {
     console.error('Error fetching server wallet:', error);

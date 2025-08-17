@@ -1,5 +1,5 @@
 import { cdp, EVM_NETWORK } from '../../lib/cdp';
-import pool from '../../database/connection';
+import { supabase } from '../../lib/supabase';
 
 interface TransactionData {
   id: string;
@@ -223,50 +223,42 @@ export class TransactionHistoryService {
    * Store transactions in the database
    */
   async storeTransactions(transactions: TransactionData[]): Promise<void> {
-    const client = await pool.connect();
-    
     try {
-      await client.query('BEGIN');
-      
       for (const tx of transactions) {
-        // Insert or update account_events table
-        await client.query(`
-          INSERT INTO account_events (
-            address, occurred_at, kind, tx_hash, chain, details
-          ) VALUES ($1, $2, $3, $4, $5, $6)
-          ON CONFLICT (tx_hash) DO UPDATE SET
-            details = EXCLUDED.details,
-            occurred_at = EXCLUDED.occurred_at
-        `, [
-          tx.accountAddress,
-          tx.timestamp,
-          this.mapEventTypeToKind(tx.eventType),
-          tx.transactionHash,
-          tx.chain,
-          JSON.stringify({
-            blockNumber: tx.blockNumber,
-            eventType: tx.eventType,
-            fromAddress: tx.fromAddress,
-            toAddress: tx.toAddress,
-            tokenAddress: tx.tokenAddress,
-            tokenSymbol: tx.tokenSymbol,
-            tokenName: tx.tokenName,
-            amount: tx.amount,
-            usdValue: tx.usdValue,
-            gasUsed: tx.gasUsed,
-            gasFee: tx.gasFee,
-            status: tx.status
-          })
-        ]);
+        // Insert or update account_events table using Supabase upsert
+        const { error } = await supabase
+          .from('account_events')
+          .upsert({
+            address: tx.accountAddress,
+            occurred_at: tx.timestamp.toISOString(),
+            kind: this.mapEventTypeToKind(tx.eventType),
+            tx_hash: tx.transactionHash,
+            chain: tx.chain,
+            details: {
+              blockNumber: tx.blockNumber,
+              eventType: tx.eventType,
+              fromAddress: tx.fromAddress,
+              toAddress: tx.toAddress,
+              tokenAddress: tx.tokenAddress,
+              tokenSymbol: tx.tokenSymbol,
+              tokenName: tx.tokenName,
+              amount: tx.amount,
+              usdValue: tx.usdValue,
+              gasUsed: tx.gasUsed,
+              gasFee: tx.gasFee,
+              status: tx.status
+            }
+          }, {
+            onConflict: 'tx_hash'
+          });
+        
+        if (error) {
+          console.error('Error storing transaction:', error, tx.transactionHash);
+        }
       }
-      
-      await client.query('COMMIT');
     } catch (error) {
-      await client.query('ROLLBACK');
       console.error('Error storing transactions:', error);
       throw error;
-    } finally {
-      client.release();
     }
   }
 
@@ -302,19 +294,22 @@ export class TransactionHistoryService {
       }
 
       // Get transactions from database
-      const result = await pool.query(`
-        SELECT 
-          we.*,
-          uw.user_id
-        FROM account_events we
-        JOIN user_accounts uw ON we.address = uw.address
-        WHERE we.address = $1
-        ORDER BY we.occurred_at DESC
-        LIMIT $2
-      `, [accountAddress, limit]);
+      const { data, error } = await supabase
+        .from('account_events')
+        .select(`
+          *,
+          user_accounts!inner(
+            user_id
+          )
+        `)
+        .eq('address', accountAddress)
+        .order('occurred_at', { ascending: false })
+        .limit(limit);
+
+      if (error) throw error;
 
       // Format database results to match our interface
-      return result.rows.map(row => this.formatDatabaseTransaction(row));
+      return (data || []).map(row => this.formatDatabaseTransaction(row));
     } catch (error) {
       console.error('Error getting transactions:', error);
       throw error;

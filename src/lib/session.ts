@@ -1,14 +1,7 @@
 import { Request } from 'express';
-import jwt from 'jsonwebtoken';
+import { supabase } from './supabase';
 
-interface JWTPayload {
-  userId: string;
-  email: string;
-  iat?: number;
-  exp?: number;
-}
-
-export function getUserId(req: Request): string | null {
+export async function getUserId(req: Request): Promise<string | null> {
   try {
     // Try to get token from Authorization header
     const authHeader = req.headers.authorization;
@@ -18,35 +11,29 @@ export function getUserId(req: Request): string | null {
 
     const token = authHeader.substring(7); // Remove 'Bearer ' prefix
     
-    if (!process.env.JWT_SECRET) {
-      console.error('JWT_SECRET not configured');
+    // Use Supabase Auth to verify token
+    const { data, error } = await supabase.auth.getUser(token);
+    
+    if (error || !data.user) {
       return null;
     }
 
-    const decoded = jwt.verify(token, process.env.JWT_SECRET) as JWTPayload;
-    return decoded.userId;
+    return data.user.id;
   } catch (error) {
     console.error('Token verification failed:', error);
     return null;
   }
 }
 
-export function requireAuth(req: Request): string {
-  const userId = getUserId(req);
+export async function requireAuth(req: Request): Promise<string> {
+  const userId = await getUserId(req);
   if (!userId) {
-    throw new Error('Authentication required - please provide valid JWT token');
+    throw new Error('Authentication required - please provide valid Supabase session token');
   }
   return userId;
 }
 
+// Legacy function - no longer needed with Supabase Auth
 export function generateToken(userId: string, email: string): string {
-  if (!process.env.JWT_SECRET) {
-    throw new Error('JWT_SECRET not configured');
-  }
-  
-  return jwt.sign(
-    { userId, email },
-    process.env.JWT_SECRET,
-    { expiresIn: '7d' }
-  );
+  throw new Error('generateToken is deprecated - use Supabase Auth sessions instead');
 }

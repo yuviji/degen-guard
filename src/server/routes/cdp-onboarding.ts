@@ -1,6 +1,6 @@
 import express from 'express';
 import { cdp, EVM_NETWORK } from '../../lib/cdp';
-import { db } from '../../lib/db';
+import { supabase } from '../../lib/supabase';
 import { requireAuth, getUserId } from '../../lib/session';
 
 export const cdpOnboardingRoutes = express.Router();
@@ -8,16 +8,32 @@ export const cdpOnboardingRoutes = express.Router();
 // Provision a new server account for the user
 cdpOnboardingRoutes.post('/provision', async (req, res) => {
   try {
-    const userId = requireAuth(req);
+    const userId = await requireAuth(req);
+
+    // Ensure user exists in users table (auto-create from Supabase auth)
+    const { data: userData, error: userError } = await supabase.auth.getUser(req.headers.authorization?.substring(7) || '');
+    if (userData.user) {
+      await supabase
+        .from('users')
+        .upsert({
+          id: userData.user.id,
+          email: userData.user.email || '',
+          password_hash: 'supabase_managed' // Placeholder since Supabase handles auth
+        }, {
+          onConflict: 'id'
+        });
+    }
 
     // Check if user already has a server account
-    const existing = await db.query(
-      `SELECT address FROM user_accounts WHERE user_id = $1 AND type = 'server'`,
-      [userId]
-    );
+    const { data: existing, error: existingError } = await supabase
+      .from('user_accounts')
+      .select('address')
+      .eq('user_id', userId)
+      .eq('type', 'server')
+      .single();
 
-    if (existing.rows.length > 0) {
-      return res.json({ address: existing.rows[0].address });
+    if (existing && !existingError) {
+      return res.json({ address: existing.address });
     }
 
     // Create a new EVM account using CDP SDK
@@ -25,16 +41,30 @@ cdpOnboardingRoutes.post('/provision', async (req, res) => {
     const addressString = account.address.toLowerCase();
 
     // Store in database
-    await db.query(
-      `INSERT INTO user_accounts(user_id, type, cdp_account_id, address, chain, status)
-       VALUES ($1, 'server', $2, $3, $4, 'provisioned')
-       ON CONFLICT (user_id, type) DO NOTHING`,
-      [userId, null, addressString, 'base']
-    );
+    const { error: insertError } = await supabase
+      .from('user_accounts')
+      .upsert({
+        user_id: userId,
+        type: 'server',
+        cdp_account_id: null,
+        address: addressString,
+        chain: 'base',
+        status: 'provisioned'
+      }, {
+        onConflict: 'user_id,type'
+      });
+
+    if (insertError) {
+      console.error('Error storing account:', insertError);
+      throw insertError;
+    }
 
     res.json({ address: addressString });
   } catch (error) {
     console.error('Error provisioning account:', error);
+    if (error instanceof Error && error.message.includes('Authentication required')) {
+      return res.status(401).json({ error: 'Authentication required - please log in' });
+    }
     res.status(500).json({ error: 'Failed to provision account' });
   }
 });
@@ -42,24 +72,25 @@ cdpOnboardingRoutes.post('/provision', async (req, res) => {
 // Get current user's server account
 cdpOnboardingRoutes.get('/me', async (req, res) => {
   try {
-    const userId = getUserId(req);
+    const userId = await getUserId(req);
     if (!userId) {
       return res.status(401).json({ error: 'unauthorized' });
     }
 
-    const { rows } = await db.query(
-      `SELECT address, status
-       FROM user_accounts
-       WHERE user_id = $1 AND type = 'server'
-       ORDER BY created_at DESC LIMIT 1`,
-      [userId]
-    );
+    const { data, error } = await supabase
+      .from('user_accounts')
+      .select('address, status')
+      .eq('user_id', userId)
+      .eq('type', 'server')
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .single();
 
-    if (!rows.length) {
+    if (error || !data) {
       return res.json({ exists: false });
     }
 
-    res.json({ exists: true, server: rows[0] });
+    res.json({ exists: true, server: data });
   } catch (error) {
     console.error('Error fetching user account:', error);
     res.status(500).json({ error: 'Failed to fetch account' });
@@ -80,19 +111,37 @@ cdpOnboardingRoutes.get('/:address/funding-status', async (req, res) => {
 
     // Update account status
     if (funded) {
-      await db.query(
-        `UPDATE user_accounts
-         SET status = 'active', first_funded_at = COALESCE(first_funded_at, NOW())
-         WHERE address = $1`,
-        [address]
-      );
+      const { error: updateError } = await supabase
+        .from('user_accounts')
+        .update({
+          status: 'active',
+          first_funded_at: new Date().toISOString()
+        })
+        .eq('address', address)
+        .is('first_funded_at', null);
+
+      if (updateError) {
+        console.error('Error updating funded account:', updateError);
+      }
+
+      // Also update if first_funded_at is already set
+      await supabase
+        .from('user_accounts')
+        .update({ status: 'active' })
+        .eq('address', address);
     } else {
-      await db.query(
-        `UPDATE user_accounts
-         SET status = CASE WHEN status = 'provisioned' THEN 'funding' ELSE status END
-         WHERE address = $1`,
-        [address]
-      );
+      const { data: currentAccount } = await supabase
+        .from('user_accounts')
+        .select('status')
+        .eq('address', address)
+        .single();
+
+      if (currentAccount?.status === 'provisioned') {
+        await supabase
+          .from('user_accounts')
+          .update({ status: 'funding' })
+          .eq('address', address);
+      }
     }
 
     // Store balance snapshot
@@ -104,10 +153,16 @@ cdpOnboardingRoutes.get('/:address/funding-status', async (req, res) => {
       }))
     };
 
-    await db.query(
-      `INSERT INTO account_balances(address, payload) VALUES ($1, $2)`,
-      [address, JSON.stringify(balanceData)]
-    );
+    const { error: balanceError } = await supabase
+      .from('account_balances')
+      .insert({
+        address: address,
+        payload: balanceData
+      });
+
+    if (balanceError) {
+      console.error('Error storing balance:', balanceError);
+    }
 
     res.json({ funded });
   } catch (error) {
@@ -119,30 +174,36 @@ cdpOnboardingRoutes.get('/:address/funding-status', async (req, res) => {
 // Dashboard data aggregation
 cdpOnboardingRoutes.get('/dashboard', async (req, res) => {
   try {
-    const userId = getUserId(req);
+    const userId = await getUserId(req);
     if (!userId) {
       return res.status(401).json({ error: 'unauthorized' });
     }
 
     // Get user's active account
-    const { rows: accountRows } = await db.query(
-      `SELECT address FROM user_accounts WHERE user_id = $1 AND status = 'active' LIMIT 1`,
-      [userId]
-    );
+    const { data: account, error: accountError } = await supabase
+      .from('user_accounts')
+      .select('address')
+      .eq('user_id', userId)
+      .eq('status', 'active')
+      .limit(1)
+      .single();
 
-    if (!accountRows.length) {
+    if (accountError || !account) {
       return res.json({ ready: false });
     }
 
-    const address = accountRows[0].address;
+    const address = account.address;
 
     // Get latest balance snapshot
-    const { rows: balanceRows } = await db.query(
-      `SELECT payload FROM account_balances WHERE address = $1 ORDER BY as_of DESC LIMIT 1`,
-      [address]
-    );
+    const { data: balanceData, error: balanceError } = await supabase
+      .from('account_balances')
+      .select('payload')
+      .eq('address', address)
+      .order('as_of', { ascending: false })
+      .limit(1)
+      .single();
 
-    const payload = balanceRows[0]?.payload ?? { balances: [] };
+    const payload = balanceData?.payload ?? { balances: [] };
     const { totalUsd, tokens } = summarizeBalances(payload);
 
     res.json({ ready: true, address, totalUsd, tokens });

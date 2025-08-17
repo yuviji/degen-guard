@@ -15,13 +15,13 @@ export const portfolioRoutes = express.Router();
 // Get portfolio overview for a user
 portfolioRoutes.get('/overview', async (req, res) => {
   try {
-    const userId = getUserId(req);
+    const userId = await getUserId(req);
     if (!userId) {
       return res.status(401).json({ error: 'Authentication required' });
     }
 
     // Get user's server wallet address
-    const serverWallet = await getServerWallet(Number(userId));
+    const serverWallet = await getServerWallet(userId);
     if (!serverWallet) {
       return res.status(404).json({ error: 'No server wallet found for user' });
     }
@@ -49,7 +49,7 @@ portfolioRoutes.get('/overview', async (req, res) => {
 // Get portfolio history
 portfolioRoutes.get('/history', async (req, res) => {
   try {
-    const userId = getUserId(req);
+    const userId = await getUserId(req);
     if (!userId) {
       return res.status(401).json({ error: 'Authentication required' });
     }
@@ -57,7 +57,7 @@ portfolioRoutes.get('/history', async (req, res) => {
     const days = parseInt(req.query.days as string) || 7;
 
     // Get user's server wallet address
-    const serverWallet = await getServerWallet(Number(userId));
+    const serverWallet = await getServerWallet(userId);
     if (!serverWallet) {
       return res.status(404).json({ error: 'No server wallet found for user' });
     }
@@ -79,7 +79,7 @@ portfolioRoutes.get('/history', async (req, res) => {
 // Get recent transactions across all wallets
 portfolioRoutes.get('/transactions', async (req, res) => {
   try {
-    const userId = getUserId(req);
+    const userId = await getUserId(req);
     if (!userId) {
       return res.status(401).json({ error: 'Authentication required' });
     }
@@ -87,7 +87,7 @@ portfolioRoutes.get('/transactions', async (req, res) => {
     const limit = parseInt(req.query.limit as string) || 50;
 
     // Get user's server wallet address
-    const serverWallet = await getServerWallet(Number(userId));
+    const serverWallet = await getServerWallet(userId);
     if (!serverWallet) {
       return res.status(404).json({ error: 'No server wallet found for user' });
     }

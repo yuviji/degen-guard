@@ -13,42 +13,7 @@
    cp .env.example .env
    ```
 
-2. **Configure your .env file with:**
-   ```env
-   # Database Configuration
-   DATABASE_URL=postgresql://username:password@localhost:5432/degenguard
-
-   # Coinbase Developer Platform
-   CDP_API_KEY=your_cdp_api_key_here
-   CDP_API_SECRET=your_cdp_api_secret_here
-
-   # Google Gemini Configuration
-   GEMINI_API_KEY=your_gemini_api_key_here
-
-   # Server Configuration
-   PORT=3001
-   NODE_ENV=development
-
-   # Security
-   JWT_SECRET=your_jwt_secret_here
-   ```
-
-## Database Setup
-
-1. **Create PostgreSQL database:**
-   ```sql
-   CREATE DATABASE degenguard;
-   ```
-
-2. **Run migrations:**
-   ```bash
-   pnpm db:migrate
-   ```
-
-3. **Seed demo data:**
-   ```bash
-   pnpm db:seed
-   ```
+2. **Configure your .env file**
 
 ## Development
 

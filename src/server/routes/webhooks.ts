@@ -15,7 +15,7 @@ export const webhookRoutes = express.Router();
  */
 webhookRoutes.post('/setup', async (req, res) => {
   try {
-    const userId = getUserId(req);
+    const userId = await getUserId(req);
     if (!userId) {
       return res.status(401).json({ error: 'Authentication required' });
     }
@@ -84,7 +84,7 @@ webhookRoutes.post('/portfolio', express.raw({ type: 'application/json' }), asyn
  */
 webhookRoutes.get('/status', async (req, res) => {
   try {
-    const userId = getUserId(req);
+    const userId = await getUserId(req);
     if (!userId) {
       return res.status(401).json({ error: 'Authentication required' });
     }

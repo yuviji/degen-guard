@@ -1,5 +1,5 @@
 import express from 'express';
-import pool from '../../database/connection';
+import { supabase } from '../../lib/supabase';
 import cdpService from '../services/cdp';
 import { Account } from '@/shared/types';
 import { getUserId } from '../../lib/session';
@@ -10,17 +10,19 @@ export const accountRoutes = express.Router();
 // Get all accounts for a user
 accountRoutes.get('/', async (req, res) => {
   try {
-    const userId = getUserId(req);
+    const userId = await getUserId(req);
     if (!userId) {
       return res.status(401).json({ error: 'Authentication required' });
     }
 
-    const result = await pool.query(
-      'SELECT * FROM user_accounts WHERE user_id = $1 ORDER BY created_at DESC',
-      [userId]
-    );
+    const { data, error } = await supabase
+      .from('user_accounts')
+      .select('*')
+      .eq('user_id', userId)
+      .order('created_at', { ascending: false });
 
-    res.json(result.rows);
+    if (error) throw error;
+    res.json(data);
   } catch (error) {
     console.error('Error fetching wallets:', error);
     res.status(500).json({ error: 'Failed to fetch wallets' });
@@ -30,20 +32,24 @@ accountRoutes.get('/', async (req, res) => {
 // Create a new server-managed wallet (CDP-based)
 accountRoutes.post('/', async (req, res) => {
   try {
-    const userId = getUserId(req);
+    const userId = await getUserId(req);
     if (!userId) {
       return res.status(401).json({ error: 'Authentication required' });
     }
 
     // Check if user already has a server wallet
-    const existing = await pool.query(
-      `SELECT address FROM user_accounts WHERE user_id = $1 AND type = 'server'`,
-      [userId]
-    );
+    const { data: existing, error: existingError } = await supabase
+      .from('user_accounts')
+      .select('address')
+      .eq('user_id', userId)
+      .eq('type', 'server')
+      .single();
 
-    if (existing.rows.length > 0) {
+    if (existingError && existingError.code !== 'PGRST116') throw existingError;
+    
+    if (existing) {
       return res.json({ 
-        address: existing.rows[0].address,
+        address: existing.address,
         message: 'Wallet already exists' 
       });
     }
@@ -57,12 +63,18 @@ accountRoutes.post('/', async (req, res) => {
       const addressString = account.address.toLowerCase();
 
       // Store in database
-      await pool.query(
-        `INSERT INTO user_accounts(user_id, type, cdp_account_id, address, chain, status)
-         VALUES ($1, 'server', $2, $3, $4, 'provisioned')
-         ON CONFLICT (user_id, type) DO NOTHING`,
-        [userId, null, addressString, 'base']
-      );
+      const { error: insertError } = await supabase
+        .from('user_accounts')
+        .upsert({
+          user_id: userId,
+          type: 'server',
+          cdp_account_id: null,
+          address: addressString,
+          chain: 'base',
+          status: 'provisioned'
+        });
+      
+      if (insertError) throw insertError;
 
       res.status(201).json({ 
         address: addressString,
@@ -82,35 +94,37 @@ accountRoutes.post('/', async (req, res) => {
 accountRoutes.get('/:address/balances', async (req, res) => {
   try {
     const { address } = req.params;
-    const userId = getUserId(req);
+    const userId = await getUserId(req);
     if (!userId) {
       return res.status(401).json({ error: 'Authentication required' });
     }
 
     // Verify wallet belongs to user
-    const walletResult = await pool.query(
-      'SELECT * FROM user_accounts WHERE address = $1 AND user_id = $2',
-      [address, userId]
-    );
+    const { data: wallet, error: walletError } = await supabase
+      .from('user_accounts')
+      .select('*')
+      .eq('address', address)
+      .eq('user_id', userId)
+      .single();
 
-    if (walletResult.rows.length === 0) {
+    if (walletError || !wallet) {
       return res.status(404).json({ error: 'Wallet not found' });
     }
 
     // Get latest balance snapshot from database
-    const balanceResult = await pool.query(
-      `SELECT payload FROM account_balances 
-       WHERE address = $1 
-       ORDER BY as_of DESC 
-       LIMIT 1`,
-      [address]
-    );
+    const { data: balance, error: balanceError } = await supabase
+      .from('account_balances')
+      .select('payload')
+      .eq('address', address)
+      .order('as_of', { ascending: false })
+      .limit(1)
+      .single();
 
-    if (balanceResult.rows.length === 0) {
+    if (balanceError || !balance) {
       return res.status(404).json({ error: 'No balance data found' });
     }
 
-    res.json(balanceResult.rows[0].payload);
+    res.json(balance.payload);
   } catch (error) {
     console.error('Error fetching wallet balances:', error);
     res.status(500).json({ error: 'Failed to fetch wallet balances' });
@@ -123,18 +137,20 @@ accountRoutes.get('/:address/transactions', async (req, res) => {
     const { address } = req.params;
     const limit = parseInt(req.query.limit as string) || 50;
     const refresh = req.query.refresh === 'true';
-    const userId = getUserId(req);
+    const userId = await getUserId(req);
     if (!userId) {
       return res.status(401).json({ error: 'Authentication required' });
     }
 
     // Verify wallet belongs to user
-    const walletResult = await pool.query(
-      'SELECT * FROM user_accounts WHERE address = $1 AND user_id = $2',
-      [address, userId]
-    );
+    const { data: wallet2, error: walletError2 } = await supabase
+      .from('user_accounts')
+      .select('*')
+      .eq('address', address)
+      .eq('user_id', userId)
+      .single();
 
-    if (walletResult.rows.length === 0) {
+    if (walletError2 || !wallet2) {
       return res.status(404).json({ error: 'Wallet not found' });
     }
 
@@ -152,17 +168,19 @@ accountRoutes.get('/:address/transactions', async (req, res) => {
 accountRoutes.delete('/:address', async (req, res) => {
   try {
     const { address } = req.params;
-    const userId = getUserId(req);
+    const userId = await getUserId(req);
     if (!userId) {
       return res.status(401).json({ error: 'Authentication required' });
     }
 
-    const result = await pool.query(
-      'DELETE FROM user_accounts WHERE address = $1 AND user_id = $2 RETURNING *',
-      [address, userId]
-    );
+    const { data, error } = await supabase
+      .from('user_accounts')
+      .delete()
+      .eq('address', address)
+      .eq('user_id', userId)
+      .select();
 
-    if (result.rows.length === 0) {
+    if (error || !data || data.length === 0) {
       return res.status(404).json({ error: 'Wallet not found' });
     }
 

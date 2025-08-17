@@ -2,50 +2,41 @@
 
 import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import { useAuth } from '@/contexts/auth-context';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
 
 export default function HomePage() {
   const router = useRouter();
+  const { user, session, loading } = useAuth();
 
   useEffect(() => {
     const handleRedirect = async () => {
-      const token = localStorage.getItem('authToken');
+      if (loading) return;
       
-      // If no token, redirect to login
-      if (!token) {
+      // If no user, redirect to login
+      if (!user || !session) {
         router.push('/login');
         return;
       }
 
-      // Verify token is valid
+      // Check if user has a CDP account to determine redirect
       try {
-        const payload = JSON.parse(atob(token.split('.')[1]));
-        const isExpired = payload.exp * 1000 < Date.now();
-        
-        if (isExpired) {
-          localStorage.removeItem('authToken');
-          router.push('/login');
-          return;
-        }
-
-        // Check if user has a CDP account
         const accountResponse = await fetch(`${API_BASE_URL}/api/cdp/me`, {
           headers: {
-            'Authorization': `Bearer ${token}`,
+            'Authorization': `Bearer ${session.access_token}`,
             'Content-Type': 'application/json',
           },
         });
         
         if (accountResponse.ok) {
-          const data = await accountResponse.json();
-          if (data.exists && data.server) {
+          const accountData = await accountResponse.json();
+          if (accountData.exists && accountData.server) {
             router.push('/dashboard');
           } else {
             router.push('/onboarding');
           }
         } else if (accountResponse.status === 401) {
-          localStorage.removeItem('authToken');
           router.push('/login');
         } else {
           // If we can't check account, go to onboarding to be safe
@@ -53,13 +44,12 @@ export default function HomePage() {
         }
       } catch (error) {
         console.error('Error checking authentication:', error);
-        localStorage.removeItem('authToken');
         router.push('/login');
       }
     };
 
     handleRedirect();
-  }, [router]);
+  }, [router, user, session, loading]);
 
   // Show loading spinner while redirecting
   return (

@@ -1,7 +1,5 @@
 import express from 'express';
-import bcrypt from 'bcrypt';
-import { db } from '../../lib/db';
-import { generateToken } from '../../lib/session';
+import { supabase } from '../../lib/supabase';
 
 export const authRoutes = express.Router();
 
@@ -14,27 +12,19 @@ authRoutes.post('/register', async (req, res) => {
       return res.status(400).json({ error: 'Email and password are required' });
     }
 
-    // Check if user already exists
-    const existing = await db.query('SELECT id FROM users WHERE email = $1', [email]);
-    if (existing.rows.length > 0) {
-      return res.status(409).json({ error: 'User already exists' });
+    // Use Supabase Auth to create user
+    const { data, error } = await supabase.auth.signUp({
+      email,
+      password,
+    });
+
+    if (error) {
+      return res.status(400).json({ error: error.message });
     }
 
-    // Hash password
-    const hashedPassword = await bcrypt.hash(password, 10);
-
-    // Create user
-    const result = await db.query(
-      'INSERT INTO users (email, password_hash) VALUES ($1, $2) RETURNING id, email',
-      [email, hashedPassword]
-    );
-
-    const user = result.rows[0];
-    const token = generateToken(user.id, user.email);
-
     res.status(201).json({
-      user: { id: user.id, email: user.email },
-      token
+      user: data.user,
+      session: data.session
     });
   } catch (error) {
     console.error('Registration error:', error);
@@ -51,25 +41,19 @@ authRoutes.post('/login', async (req, res) => {
       return res.status(400).json({ error: 'Email and password are required' });
     }
 
-    // Find user
-    const result = await db.query('SELECT id, email, password_hash FROM users WHERE email = $1', [email]);
-    if (result.rows.length === 0) {
-      return res.status(401).json({ error: 'Invalid credentials' });
+    // Use Supabase Auth to sign in
+    const { data, error } = await supabase.auth.signInWithPassword({
+      email,
+      password,
+    });
+
+    if (error) {
+      return res.status(401).json({ error: error.message });
     }
-
-    const user = result.rows[0];
-
-    // Verify password
-    const validPassword = await bcrypt.compare(password, user.password_hash);
-    if (!validPassword) {
-      return res.status(401).json({ error: 'Invalid credentials' });
-    }
-
-    const token = generateToken(user.id, user.email);
 
     res.json({
-      user: { id: user.id, email: user.email },
-      token
+      user: data.user,
+      session: data.session
     });
   } catch (error) {
     console.error('Login error:', error);
@@ -77,7 +61,7 @@ authRoutes.post('/login', async (req, res) => {
   }
 });
 
-// Verify token
+// Verify session
 authRoutes.get('/verify', async (req, res) => {
   try {
     const authHeader = req.headers.authorization;
@@ -87,22 +71,40 @@ authRoutes.get('/verify', async (req, res) => {
 
     const token = authHeader.substring(7);
     
-    if (!process.env.JWT_SECRET) {
-      return res.status(500).json({ error: 'Server configuration error' });
+    // Use Supabase Auth to verify session
+    const { data, error } = await supabase.auth.getUser(token);
+
+    if (error || !data.user) {
+      return res.status(401).json({ error: 'Invalid token' });
     }
 
-    const jwt = require('jsonwebtoken');
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    
-    // Get user details
-    const result = await db.query('SELECT id, email FROM users WHERE id = $1', [decoded.userId]);
-    if (result.rows.length === 0) {
-      return res.status(401).json({ error: 'User not found' });
-    }
-
-    res.json({ user: result.rows[0] });
+    res.json({ user: data.user });
   } catch (error) {
     console.error('Token verification error:', error);
     res.status(401).json({ error: 'Invalid token' });
+  }
+});
+
+// Logout user
+authRoutes.post('/logout', async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({ error: 'No token provided' });
+    }
+
+    const token = authHeader.substring(7);
+    
+    // Use Supabase Auth to sign out
+    const { error } = await supabase.auth.admin.signOut(token);
+
+    if (error) {
+      return res.status(400).json({ error: error.message });
+    }
+
+    res.json({ message: 'Logged out successfully' });
+  } catch (error) {
+    console.error('Logout error:', error);
+    res.status(500).json({ error: 'Logout failed' });
   }
 });

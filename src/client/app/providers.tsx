@@ -7,6 +7,7 @@ import { WagmiProvider } from 'wagmi';
 import { http, createConfig } from 'wagmi';
 import { base } from 'wagmi/chains';
 import { coinbaseWallet } from 'wagmi/connectors';
+import { AuthProvider } from '@/contexts/auth-context';
 
 if (!process.env.NEXT_PUBLIC_ONCHAINKIT_API_KEY) {
   throw new Error('NEXT_PUBLIC_ONCHAINKIT_API_KEY is not defined');
@@ -33,16 +34,18 @@ const queryClient = new QueryClient();
 
 export function Providers(props: { children: ReactNode }) {
   return (
-    <WagmiProvider config={wagmiConfig}>
-      <QueryClientProvider client={queryClient}>
-        <OnchainKitProvider
-          apiKey={process.env.NEXT_PUBLIC_ONCHAINKIT_API_KEY}
-          chain={base}
-          projectId={process.env.NEXT_PUBLIC_ONCHAINKIT_PROJECT_ID}
-        >
-          {props.children}
-        </OnchainKitProvider>
-      </QueryClientProvider>
-    </WagmiProvider>
+    <AuthProvider>
+      <WagmiProvider config={wagmiConfig}>
+        <QueryClientProvider client={queryClient}>
+          <OnchainKitProvider
+            apiKey={process.env.NEXT_PUBLIC_ONCHAINKIT_API_KEY}
+            chain={base}
+            projectId={process.env.NEXT_PUBLIC_ONCHAINKIT_PROJECT_ID}
+          >
+            {props.children}
+          </OnchainKitProvider>
+        </QueryClientProvider>
+      </WagmiProvider>
+    </AuthProvider>
   );
 }
