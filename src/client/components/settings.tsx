@@ -1,6 +1,7 @@
 "use client"
 
 import { useState } from "react"
+import { Navigation } from "./navigation"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -119,6 +120,7 @@ function formatTimeAgo(date: Date): string {
 }
 
 export function Settings() {
+  const [currentPage, setCurrentPage] = useState("settings")
   const [settings, setSettings] = useState<UserSettings>({
     profile: {
       name: "DeFi Trader",
@@ -188,6 +190,9 @@ export function Settings() {
 
   return (
     <div className="container mx-auto p-6 space-y-6">
+      {/* Navigation */}
+      <Navigation currentPage={currentPage} onPageChange={setCurrentPage} />
+
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>

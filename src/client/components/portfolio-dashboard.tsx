@@ -20,6 +20,7 @@ import {
 } from "recharts"
 import { TrendingUp, CreditCard, Shield, Bell, Clock, ArrowUpRight, ArrowDownRight, ExternalLink, RefreshCw } from "lucide-react"
 import { portfolioApi, accountsApi, rulesApi, alertsApi, PortfolioMetrics, ApiError } from "@/lib/api"
+import { Navigation } from "@/components/navigation"
 
 // Asset color mapping for consistent visualization
 const ASSET_COLORS: Record<string, string> = {
@@ -75,6 +76,7 @@ export function PortfolioDashboard() {
   const [lastSync, setLastSync] = useState<Date>(new Date())
   const [isConnected, setIsConnected] = useState(true)
   const [autoRefresh, setAutoRefresh] = useState(true)
+  const [currentPage, setCurrentPage] = useState("dashboard")
 
   useEffect(() => {
     fetchPortfolioData()
@@ -188,19 +190,19 @@ export function PortfolioDashboard() {
     )
   }
 
-  if (!isConnected || portfolioData.total_usd_value === 0) {
+  if (!isConnected) {
     return (
       <div className="container mx-auto p-6">
         <div className="flex items-center justify-center min-h-[60vh]">
           <Card className="w-full max-w-md">
             <CardHeader className="text-center">
-              <CardTitle className="text-2xl">Fund Your Guardian</CardTitle>
-              <p className="text-muted-foreground">Add crypto to your secure account to start monitoring your DeFi portfolio</p>
+              <CardTitle className="text-2xl text-destructive">Connection Error</CardTitle>
+              <p className="text-muted-foreground">Unable to connect to your account. Please try again.</p>
             </CardHeader>
             <CardContent className="text-center">
-              <Button size="lg" className="w-full" onClick={() => window.location.href = '/fund'}>
-                <CreditCard className="mr-2 h-4 w-4" />
-                Fund Account
+              <Button size="lg" className="w-full" onClick={fetchPortfolioData}>
+                <RefreshCw className="mr-2 h-4 w-4" />
+                Retry Connection
               </Button>
             </CardContent>
           </Card>
@@ -209,8 +211,32 @@ export function PortfolioDashboard() {
     )
   }
 
+  // Show dashboard even with zero balance, but with a fund account prompt
+  const showFundPrompt = portfolioData.total_usd_value === 0;
+
   return (
     <div className="container mx-auto p-6 space-y-6">
+      {/* Fund Account Prompt - Show at top when balance is zero */}
+      {showFundPrompt && (
+        <Card className="border-primary/50 bg-primary/5">
+          <CardContent className="p-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="text-lg font-semibold text-foreground">Fund Your Guardian</h3>
+                <p className="text-muted-foreground">Add crypto to your secure account to start monitoring your DeFi portfolio</p>
+              </div>
+              <Button onClick={() => window.location.href = '/fund'}>
+                <CreditCard className="mr-2 h-4 w-4" />
+                Fund Account
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Navigation */}
+      <Navigation currentPage={currentPage} onPageChange={setCurrentPage} />
+
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>

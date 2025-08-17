@@ -26,6 +26,7 @@ import {
   RefreshCw,
 } from "lucide-react"
 import { rulesApi, Rule as ApiRule, ApiError } from "@/lib/api"
+import { Navigation } from "@/components/navigation"
 
 interface Rule {
   id: string
@@ -107,6 +108,7 @@ export function RulesManagement() {
   const [searchQuery, setSearchQuery] = useState("")
   const [selectedRule, setSelectedRule] = useState<Rule | null>(null)
   const [showJsonView, setShowJsonView] = useState(false)
+  const [currentPage, setCurrentPage] = useState("rules")
 
   useEffect(() => {
     fetchRules()
@@ -268,6 +270,9 @@ export function RulesManagement() {
 
   return (
     <div className="container mx-auto p-6 space-y-6">
+      {/* Navigation */}
+      <Navigation currentPage={currentPage} onPageChange={setCurrentPage} />
+
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>

@@ -10,6 +10,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Label } from "@/components/ui/label"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { useAuth } from "@/contexts/auth-context"
+import { supabase } from "@/lib/supabase"
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001"
 
@@ -34,28 +35,39 @@ export default function LoginPage() {
         await signUp(email, password)
       }
 
-      // Check if user has a CDP account to determine redirect
-      try {
-        const accountResponse = await fetch(`${API_BASE_URL}/api/cdp/me`, {
-          headers: {
-            Authorization: `Bearer ${session?.access_token}`,
-            "Content-Type": "application/json",
-          },
-        })
+      // Wait a moment for the session to be set by the auth context
+      await new Promise(resolve => setTimeout(resolve, 1000))
 
-        if (accountResponse.ok) {
-          const accountData = await accountResponse.json()
-          if (accountData.exists && accountData.server) {
-            router.push("/dashboard")
+      // Get the latest session after auth
+      const { data: { session: currentSession } } = await supabase.auth.getSession()
+
+      if (currentSession?.access_token) {
+        // Check if user has a CDP account to determine redirect
+        try {
+          const accountResponse = await fetch(`${API_BASE_URL}/api/cdp/me`, {
+            headers: {
+              Authorization: `Bearer ${currentSession.access_token}`,
+              "Content-Type": "application/json",
+            },
+          })
+
+          if (accountResponse.ok) {
+            const accountData = await accountResponse.json()
+            if (accountData.exists && accountData.server) {
+              router.push("/dashboard")
+            } else {
+              router.push("/onboarding")
+            }
           } else {
+            // If we can't check account, go to onboarding to be safe
             router.push("/onboarding")
           }
-        } else {
-          // If we can't check account, go to onboarding to be safe
+        } catch {
+          // If API call fails, go to onboarding
           router.push("/onboarding")
         }
-      } catch {
-        // If API call fails, go to onboarding
+      } else {
+        // No session available, go to onboarding
         router.push("/onboarding")
       }
     } catch (err: any) {

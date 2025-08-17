@@ -26,6 +26,7 @@ import {
   RefreshCw,
 } from "lucide-react"
 import { alertsApi, Alert as ApiAlert, ApiError } from "@/lib/api"
+import { Navigation } from "@/components/navigation"
 
 interface Alert {
   id: string
@@ -133,6 +134,7 @@ export function AlertsNotifications() {
   const [statusFilter, setStatusFilter] = useState<string>("all")
   const [selectedAlert, setSelectedAlert] = useState<Alert | null>(null)
   const [showSettings, setShowSettings] = useState(false)
+  const [currentPage, setCurrentPage] = useState("alerts")
   const [notificationSettings, setNotificationSettings] = useState<NotificationSettings>({
     email: true,
     push: true,
@@ -270,6 +272,9 @@ export function AlertsNotifications() {
 
   return (
     <div className="container mx-auto p-6 space-y-6">
+      {/* Navigation */}
+      <Navigation currentPage={currentPage} onPageChange={setCurrentPage} />
+
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>

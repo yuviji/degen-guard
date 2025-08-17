@@ -3,6 +3,7 @@
 import { useState, useMemo } from "react"
 import { useAccounts } from "../hooks/useWallets"
 import { useTransactions } from "../hooks/useTransactions"
+import { Navigation } from "./navigation"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -141,6 +142,7 @@ export function TransactionHistory() {
   const { accounts, loading: accountsLoading } = useAccounts()
   const selectedAccountAddress = accounts.length > 0 ? accounts[0].address : undefined
   const { transactions, loading: transactionsLoading, error: transactionsError, refetch } = useTransactions(selectedAccountAddress)
+  const [currentPage, setCurrentPage] = useState("history")
   const [searchQuery, setSearchQuery] = useState("")
   const [eventTypeFilter, setEventTypeFilter] = useState<string>("all")
   const [chainFilter, setChainFilter] = useState<string>("all")
@@ -239,6 +241,9 @@ export function TransactionHistory() {
 
   return (
     <div className="container mx-auto p-6 space-y-6">
+      {/* Navigation */}
+      <Navigation currentPage={currentPage} onPageChange={setCurrentPage} />
+
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>

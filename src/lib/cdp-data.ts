@@ -64,6 +64,8 @@ export interface HistoricalBalance {
  * Get ETH price from Alchemy API
  */
 async function getEthPrice(): Promise<number> {
+  // COMMENTED OUT: Price API queries disabled for dashboard testing
+  /*
   if (!process.env.ALCHEMY_API_KEY) {
     console.warn('ALCHEMY_API_KEY not set, using fallback ETH price');
     return 3200;
@@ -103,6 +105,10 @@ async function getEthPrice(): Promise<number> {
     console.error('Error fetching ETH price from Alchemy:', error);
     return 3200; // Fallback price
   }
+  */
+  
+  // Return mock price for dashboard testing
+  return 3200;
 }
 
 /**
@@ -111,6 +117,8 @@ async function getEthPrice(): Promise<number> {
 async function getTokenPrices(contractAddresses: string[]): Promise<Map<string, number>> {
   const priceMap = new Map<string, number>();
   
+  // COMMENTED OUT: Price API queries disabled for dashboard testing
+  /*
   if (contractAddresses.length === 0 || !process.env.ALCHEMY_API_KEY) {
     return priceMap;
   }
@@ -157,6 +165,14 @@ async function getTokenPrices(contractAddresses: string[]): Promise<Map<string, 
     console.error('Error fetching token prices from Alchemy:', error);
     return priceMap;
   }
+  */
+  
+  // Return mock prices for dashboard testing
+  contractAddresses.forEach(addr => {
+    priceMap.set(addr.toLowerCase(), 1.0); // Mock $1 price for all tokens
+  });
+  
+  return priceMap;
 }
 
 /**
@@ -234,8 +250,14 @@ export async function getTokenBalances(
       };
     });
 
-    // Enrich with USD prices from Alchemy
-    return await enrichWithAlchemyPrices(balances, address, network);
+    // COMMENTED OUT: Price enrichment disabled for dashboard testing
+    // return await enrichWithAlchemyPrices(balances, address, network);
+    
+    // Return balances with mock USD values for dashboard testing
+    return balances.map(balance => ({
+      ...balance,
+      usdValue: balance.humanReadableAmount * 1.0 // Mock $1 price
+    }));
   } catch (error) {
     console.error(`Error fetching token balances for ${address}:`, error);
     throw error;
@@ -272,6 +294,8 @@ export async function getPortfolioSnapshot(
  * Query historical data using CDP SQL API
  */
 export async function queryHistoricalData(sqlQuery: string): Promise<any[]> {
+  // COMMENTED OUT: SQL API queries disabled for dashboard testing
+  /*
   try {
     // Generate JWT token for CDP SQL API
     const token = await generateCdpJwt({
@@ -300,6 +324,11 @@ export async function queryHistoricalData(sqlQuery: string): Promise<any[]> {
     console.error('Error executing SQL query:', error);
     throw error;
   }
+  */
+  
+  // Return empty array for dashboard testing
+  console.log('SQL query disabled for dashboard testing:', sqlQuery);
+  return [];
 }
 
 /**
@@ -310,6 +339,8 @@ export async function getHistoricalBalances(
   days: number = 7,
   network: string = 'base'
 ): Promise<HistoricalBalance[]> {
+  // COMMENTED OUT: SQL queries disabled for dashboard testing
+  /*
   // Use corrected SQL API query for Base network transfers
   const sqlQuery = `
     SELECT 
@@ -334,6 +365,20 @@ export async function getHistoricalBalances(
     console.error('Error fetching historical balances:', error);
     return [];
   }
+  */
+  
+  // Return mock historical data for dashboard testing
+  const mockData: HistoricalBalance[] = [];
+  for (let i = 0; i < days; i++) {
+    const date = new Date();
+    date.setDate(date.getDate() - i);
+    mockData.push({
+      timestamp: date,
+      totalValue: 1000 + Math.random() * 500, // Mock values between $1000-$1500
+      address,
+    });
+  }
+  return mockData.reverse();
 }
 
 /**
@@ -344,6 +389,8 @@ export async function getTransactionHistory(
   limit: number = 50,
   network: string = 'base'
 ): Promise<any[]> {
+  // COMMENTED OUT: SQL queries disabled for dashboard testing
+  /*
   const sqlQuery = `
     SELECT 
       transaction_hash,
@@ -366,6 +413,11 @@ export async function getTransactionHistory(
     console.error('Error fetching transaction history:', error);
     return [];
   }
+  */
+  
+  // Return empty array for dashboard testing
+  console.log('Transaction history disabled for dashboard testing');
+  return [];
 }
 
 /**
@@ -375,6 +427,8 @@ export async function getDeFiPositions(
   address: string,
   network: string = 'base'
 ): Promise<any[]> {
+  // COMMENTED OUT: SQL queries disabled for dashboard testing
+  /*
   const sqlQuery = `
     SELECT 
       contract_address,
@@ -395,6 +449,11 @@ export async function getDeFiPositions(
     console.error('Error fetching DeFi positions:', error);
     return [];
   }
+  */
+  
+  // Return empty array for dashboard testing
+  console.log('DeFi positions disabled for dashboard testing');
+  return [];
 }
 
 /**
