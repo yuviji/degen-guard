@@ -55,10 +55,27 @@ export const portfolioApi = {
     apiRequest<PortfolioMetrics>('/api/portfolio/overview'),
   
   getHistory: (days: number = 7) => 
-    apiRequest<Array<{ timestamp: string; total_value: number }>>(`/api/portfolio/history?days=${days}`),
+    apiRequest<{
+      data: Array<{ timestamp: string; total_value: number; address: string }>;
+      serviceStatus: 'operational' | 'degraded';
+      message?: string;
+    }>(`/api/portfolio/history?days=${days}`),
   
   getTransactions: (limit: number = 50) => 
-    apiRequest<Array<any>>(`/api/portfolio/transactions?limit=${limit}`),
+    apiRequest<{
+      transactions: Array<any>;
+      serviceStatus: 'operational' | 'degraded';
+      message?: string;
+      count: number;
+    }>(`/api/portfolio/transactions?limit=${limit}`),
+  
+  getStatus: () =>
+    apiRequest<{
+      cdpData: 'operational' | 'degraded' | 'outage';
+      overall: 'operational' | 'degraded' | 'unknown';
+      timestamp: string;
+      message?: string;
+    }>('/api/portfolio/status'),
 };
 
 // Accounts API (EVM Accounts)

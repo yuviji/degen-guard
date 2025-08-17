@@ -294,14 +294,21 @@ export class TransactionHistoryService {
       }
 
       // Get transactions from database
+      // First verify this address belongs to a user account
+      const { data: accountData, error: accountError } = await supabase
+        .from('user_accounts')
+        .select('user_id')
+        .eq('address', accountAddress)
+        .single();
+
+      if (accountError) {
+        throw new Error('Account not found or unauthorized');
+      }
+
+      // Now get the account events for this address
       const { data, error } = await supabase
         .from('account_events')
-        .select(`
-          *,
-          user_accounts!inner(
-            user_id
-          )
-        `)
+        .select('*')
         .eq('address', accountAddress)
         .order('occurred_at', { ascending: false })
         .limit(limit);

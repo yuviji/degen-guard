@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
-import { CheckCircle, Loader2, Wallet } from "lucide-react"
+import { CheckCircle, Loader2, Wallet, ArrowRight } from "lucide-react"
 import { useAuth } from "@/contexts/auth-context"
 import { FundButton } from '@coinbase/onchainkit/fund';
 
@@ -37,6 +37,14 @@ interface WalletInfo {
   status: string
 }
 
+interface WalletResponse {
+  exists: boolean
+  server?: {
+    address: string
+    status: string
+  }
+}
+
 export default function FundPage() {
   const router = useRouter()
   const [walletInfo, setWalletInfo] = useState<WalletInfo | null>(null)
@@ -46,34 +54,61 @@ export default function FundPage() {
   const [currency, setCurrency] = useState<"USD" | "ETH">("USD")
   const [quote, setQuote] = useState<BuyQuoteResponse | null>(null)
   const [quoteLoading, setQuoteLoading] = useState(false)
-  const [fundingUrl, setFundingUrl] = useState<string | null>(null)
+  const [secureOnrampUrl, setSecureOnrampUrl] = useState<string | null>(null)
 
-  const { session } = useAuth()
+  const { session, loading: authLoading } = useAuth()
 
   useEffect(() => {
+    console.log("🔄 Fund page useEffect triggered, session:", !!session, "authLoading:", authLoading)
+    
+    // Don't do anything while auth is still loading
+    if (authLoading) {
+      console.log("⏳ Auth still loading, waiting...")
+      return
+    }
+    
     if (!session) {
+      console.log("❌ No session, redirecting to login")
       router.push("/login")
       return
     }
 
     const fetchWalletInfo = async () => {
+      console.log("📡 Fetching wallet info...")
       try {
         const walletRes = await fetch(`${API_BASE_URL}/api/cdp/me`, {
           headers: { Authorization: `Bearer ${session.access_token}` },
         })
 
-        const walletData = await walletRes.json()
-        console.log("WALLET DATA:", walletData)
+        const walletData: WalletResponse = await walletRes.json()
+        console.log("💰 WALLET DATA:", walletData)
 
-        if (walletRes.ok && walletData.address) {
-          setWalletInfo(walletData)
-          if (Number.parseFloat(walletData.balance) > 0) {
-            setFunded(true)
-            setTimeout(() => router.push("/dashboard"), 2000)
+        if (walletRes.ok && walletData.exists && walletData.server) {
+          // Get balance for this address
+          const balanceRes = await fetch(`${API_BASE_URL}/api/cdp/${walletData.server.address}/funding-status`, {
+            headers: { Authorization: `Bearer ${session.access_token}` },
+          })
+          
+          const balanceData = await balanceRes.json()
+          console.log("💰 BALANCE DATA:", balanceData)
+          
+          // For now, set a default balance - we'll get real balance from funding-status endpoint
+          const walletInfo: WalletInfo = {
+            address: walletData.server.address,
+            status: walletData.server.status,
+            balance: balanceData.funded ? "0.001" : "0" // Placeholder until we get real balance
           }
+          
+          setWalletInfo(walletInfo)
+          console.log("✅ Wallet info loaded:", walletInfo)
+        } else if (walletRes.ok && !walletData.exists) {
+          console.log("⚠️ No wallet exists, user needs to provision one")
+          // Redirect to onboarding to create wallet
+          router.push("/onboarding")
+          return
         }
       } catch (err) {
-        console.error("Error fetching wallet:", err)
+        console.error("❌ Error fetching wallet:", err)
       } finally {
         setLoading(false)
       }
@@ -81,7 +116,18 @@ export default function FundPage() {
 
     fetchWalletInfo()
 
-    const pollForFunding = async () => {
+    // Cleanup function
+    return () => {
+      console.log("🧹 Fund page cleanup")
+    }
+  }, [session, authLoading]) // Depend on session and auth loading state
+
+  // Separate useEffect for polling when actively funding
+  useEffect(() => {
+    if (!session || !walletInfo || !secureOnrampUrl) return
+
+    console.log("🔍 Starting balance polling for active funding...")
+    const pollInterval = setInterval(async () => {
       try {
         const response = await fetch(`${API_BASE_URL}/api/cdp/me`, {
           headers: { Authorization: `Bearer ${session.access_token}` },
@@ -90,24 +136,27 @@ export default function FundPage() {
         if (!response.ok) return
 
         const data = await response.json()
-        if (Number.parseFloat(data.balance) > 0 && !funded) {
+        console.log("🔄 Polling balance:", data.balance, "vs previous:", walletInfo.balance)
+        
+        if (Number.parseFloat(data.balance) > Number.parseFloat(walletInfo.balance)) {
+          console.log("🎉 New funds detected!")
           setFunded(true)
           setWalletInfo(data)
           clearInterval(pollInterval)
           setTimeout(() => router.push("/dashboard"), 2000)
         }
       } catch (err) {
-        console.error("Error polling wallet balance:", err)
+        console.error("❌ Error polling wallet balance:", err)
       }
+    }, 5000) // Poll every 5 seconds when actively funding
+
+    return () => {
+      console.log("🧹 Cleaning up polling interval")
+      clearInterval(pollInterval)
     }
+  }, [session, walletInfo, secureOnrampUrl, router])
 
-    const pollInterval = setInterval(pollForFunding, 10000)
-
-    // Cleanup polling on unmount
-    return () => clearInterval(pollInterval)
-  }, [router, funded])
-
-  if (loading) {
+  if (loading || authLoading) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />
@@ -156,6 +205,20 @@ export default function FundPage() {
                   {Number.parseFloat(walletInfo.balance).toFixed(4)} ETH
                 </span>
               </div>
+              {Number.parseFloat(walletInfo.balance) > 0 && (
+                <div className="mt-3 pt-3 border-t border-border">
+                  <button
+                    onClick={() => router.push("/dashboard")}
+                    className="w-full py-2 px-4 bg-secondary hover:bg-secondary/80 text-secondary-foreground font-medium rounded-lg transition-colors flex items-center justify-center gap-2"
+                  >
+                    Go to Dashboard
+                    <ArrowRight className="h-4 w-4" />
+                  </button>
+                  <p className="text-xs text-muted-foreground text-center mt-2">
+                    You already have funds. Add more below or go to your dashboard.
+                  </p>
+                </div>
+              )}
             </div>
           )}
 
@@ -204,27 +267,55 @@ export default function FundPage() {
 
                   setQuoteLoading(true)
                   try {
-                    const response = await fetch(`${API_BASE_URL}/api/onramp/buy-quote`, {
-                      method: "POST",
-                      headers: {
-                        Authorization: `Bearer ${session?.access_token}`,
-                        "Content-Type": "application/json",
-                      },
-                      body: JSON.stringify({
-                        paymentAmount: amount,
-                        paymentCurrency: currency === "USD" ? "USD" : "ETH",
-                        purchaseCurrency: "ETH",
-                        purchaseNetwork: "base",
-                        country: "US",
+                    // Get both quote and session token for secure onramp
+                    const [quoteResponse, sessionResponse] = await Promise.all([
+                      fetch(`${API_BASE_URL}/api/onramp/buy-quote`, {
+                        method: "POST",
+                        headers: {
+                          Authorization: `Bearer ${session?.access_token}`,
+                          "Content-Type": "application/json",
+                        },
+                        body: JSON.stringify({
+                          paymentAmount: amount,
+                          paymentCurrency: currency === "USD" ? "USD" : "ETH",
+                          purchaseCurrency: "ETH",
+                          purchaseNetwork: "base",
+                          country: "US",
+                        }),
                       }),
-                    })
+                      fetch(`${API_BASE_URL}/api/onramp/session-token`, {
+                        method: "POST",
+                        headers: {
+                          Authorization: `Bearer ${session?.access_token}`,
+                          "Content-Type": "application/json",
+                        },
+                      })
+                    ])
 
-                    const data = await response.json()
-                    if (response.ok) {
-                      setQuote(data)
-                      setFundingUrl(data.onramp_url)
+                    const [quoteData, sessionData] = await Promise.all([
+                      quoteResponse.json(),
+                      sessionResponse.json()
+                    ])
+
+                    if (quoteResponse.ok && sessionResponse.ok) {
+                      setQuote(quoteData)
+                      
+                      // Construct secure onramp URL with session token
+                      const projectId = process.env.NEXT_PUBLIC_ONCHAINKIT_PROJECT_ID
+                      const secureOnrampUrl = `https://pay.coinbase.com/buy/select-asset?` +
+                        `appId=${projectId}&` +
+                        `addresses=${encodeURIComponent(JSON.stringify([sessionData.destinationAddress]))}&` +
+                        `assets=${encodeURIComponent(JSON.stringify(['ETH']))}&` +
+                        `sessionToken=${sessionData.sessionToken}&` +
+                        `redirectUrl=${encodeURIComponent(window.location.origin + '/dashboard')}`
+                      
+                      setSecureOnrampUrl(secureOnrampUrl)
+                      console.log("✅ Got quote and constructed secure onramp URL", { 
+                        destinationAddress: sessionData.destinationAddress,
+                        secureUrl: secureOnrampUrl
+                      })
                     } else {
-                      console.error("Quote error:", data)
+                      console.error("Error:", { quoteData, sessionData })
                     }
                   } catch (err) {
                     console.error("Error getting quote:", err)
@@ -246,8 +337,8 @@ export default function FundPage() {
               </button>
             </div>
 
-            {/* Quote Display */}
-            {quote && (
+            {/* Quote Display and Fund Button */}
+            {quote && secureOnrampUrl && (
               <div className="bg-muted/20 rounded-lg p-4 space-y-3 border border-border">
                 <h3 className="text-foreground font-medium">Quote Summary</h3>
                 <div className="space-y-2 text-sm">
@@ -275,13 +366,17 @@ export default function FundPage() {
                       ${Number.parseFloat(quote.network_fee.value).toFixed(2)}
                     </span>
                   </div>
+                  <div className="mt-2 pt-2 border-t border-border">
+                    <span className="text-xs text-muted-foreground">
+                      Funds will be sent to your secure server wallet
+                    </span>
+                  </div>
                 </div>
-                <FundButton fundingUrl={quote.onramp_url + "&redirectUrl=" + API_BASE_URL} />
+                
+                {/* OnchainKit Fund Button with secure onramp URL */}
+                <FundButton fundingUrl={secureOnrampUrl} />
               </div>
             )}
-
-            {/* Fund Button */}
-            {fundingUrl && <FundButton fundingUrl={fundingUrl} />}
 
             <div className="text-center">
               <p className="text-xs text-muted-foreground">

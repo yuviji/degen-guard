@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { supabase } from '@/lib/supabase';
 
 interface Transaction {
   id: string;
@@ -44,16 +45,27 @@ export function useTransactions(accountAddress?: string, limit: number = 50): Us
     setError(null);
 
     try {
+      // Get auth token
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token;
+
+      if (!token) {
+        throw new Error('Authentication required');
+      }
+
+      // Build the API URL
+      const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
       const params = new URLSearchParams({
         limit: limit.toString(),
         ...(refresh && { refresh: 'true' })
       });
+      const url = `${API_BASE_URL}/api/accounts/${accountAddress}/transactions?${params}`;
 
-      const response = await fetch(`/api/accounts/${accountAddress}/transactions?${params}`, {
+      const response = await fetch(url, {
         method: 'GET',
-        credentials: 'include',
         headers: {
           'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
         },
       });
 
@@ -63,19 +75,27 @@ export function useTransactions(accountAddress?: string, limit: number = 50): Us
         } else if (response.status === 404) {
           throw new Error('Account not found');
         } else {
-          throw new Error('Failed to fetch transactions');
+          throw new Error(`Failed to fetch transactions: ${response.status}`);
         }
       }
 
       const data = await response.json();
       
+      // Handle new response format with service status
+      const responseData = data.transactions || data; // Support both new and legacy formats
+      
       // Transform the data to ensure proper date parsing
-      const formattedTransactions = data.map((tx: any) => ({
+      const formattedTransactions = responseData.map((tx: any) => ({
         ...tx,
         timestamp: new Date(tx.timestamp)
       }));
 
       setTransactions(formattedTransactions);
+      
+      // Log service status if available
+      if (data.serviceStatus && data.serviceStatus !== 'operational') {
+        console.warn('Transaction service status:', data.serviceStatus, data.message);
+      }
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Unknown error occurred';
       setError(errorMessage);

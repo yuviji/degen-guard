@@ -100,8 +100,8 @@ export function PortfolioDashboard() {
       setError(null)
       
       // Fetch all data in parallel for better performance
-      const [overview, history, transactions, accounts, rules, alertStats] = await Promise.all([
-        portfolioApi.getOverview(),
+      const [overview, historyResponse, transactionsResponse, accounts, rules, alertStats] = await Promise.all([
+        portfolioApi.getOverview(), // Overview data
         portfolioApi.getHistory(1), // Last 24 hours
         portfolioApi.getTransactions(5),
         accountsApi.getAll(),
@@ -110,6 +110,18 @@ export function PortfolioDashboard() {
       ])
       
       setPortfolioData(overview)
+      
+      // Extract history data and check service status
+      const history = historyResponse.data || historyResponse; // Support new format
+      const transactions = transactionsResponse.transactions || transactionsResponse; // Support new format
+      
+      // Log service warnings if any
+      if (historyResponse.serviceStatus && historyResponse.serviceStatus !== 'operational') {
+        console.warn('Portfolio history service degraded:', historyResponse.message);
+      }
+      if (transactionsResponse.serviceStatus && transactionsResponse.serviceStatus !== 'operational') {
+        console.warn('Transaction service degraded:', transactionsResponse.message);
+      }
       
       // Format performance history
       const formattedHistory = history.map((point, index) => ({

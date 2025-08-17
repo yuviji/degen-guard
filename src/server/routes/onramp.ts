@@ -48,7 +48,7 @@ router.post('/buy-quote', authenticateToken, async (req, res) => {
     
     // Get user's server wallet address
     const { getServerWallet } = await import('../../lib/cdp');
-    const serverWallet = await getServerWallet(userId);
+    const serverWallet = await getServerWallet(userId.toString());
     
     if (!serverWallet) {
       return res.status(404).json({ error: 'Server wallet not found' });
@@ -105,13 +105,32 @@ router.post('/buy-quote', authenticateToken, async (req, res) => {
       });
     }
 
-    // Return the quote with additional metadata
-    res.json({
-      ...data,
-      destinationAddress: serverWallet.address,
+    // Transform response to match frontend expectations (snake_case)
+    const transformedResponse = {
+      onramp_url: data.onrampUrl,
+      payment_total: {
+        currency: data.paymentTotal.currency,
+        value: data.paymentTotal.value
+      },
+      purchase_amount: {
+        currency: data.purchaseAmount.currency,
+        value: data.purchaseAmount.value
+      },
+      coinbase_fee: {
+        currency: data.coinbaseFee.currency,
+        value: data.coinbaseFee.value
+      },
+      network_fee: {
+        currency: data.networkFee.currency,
+        value: data.networkFee.value
+      },
+      quote_id: data.quoteId,
+      destination_address: serverWallet.address,
       network: purchaseNetwork,
       currency: purchaseCurrency
-    });
+    };
+
+    res.json(transformedResponse);
 
   } catch (error) {
     console.error('Buy quote creation failed:', error);
@@ -171,7 +190,7 @@ router.post('/session-token', authenticateToken, async (req, res) => {
     
     // Get user's server wallet address
     const { getServerWallet } = await import('../../lib/cdp');
-    const serverWallet = await getServerWallet(userId);
+    const serverWallet = await getServerWallet(userId.toString());
     
     if (!serverWallet) {
       return res.status(404).json({ error: 'Server wallet not found' });

@@ -12,8 +12,8 @@ interface NavigationProps {
 
 const navigationItems = [
   { id: "dashboard", label: "Dashboard", icon: BarChart3, path: "/dashboard" },
-  { id: "rules", label: "Rules", icon: Shield, badge: "7", path: "/rules" },
-  { id: "alerts", label: "Alerts", icon: Bell, badge: "2", badgeVariant: "destructive" as const, path: "/alerts" },
+  { id: "rules", label: "Rules", icon: Shield, badge: "", path: "/rules" },
+  { id: "alerts", label: "Alerts", icon: Bell, badge: "0", badgeVariant: "destructive" as const, path: "/alerts" },
   { id: "history", label: "History", icon: History, path: "/history" },
 ]
 

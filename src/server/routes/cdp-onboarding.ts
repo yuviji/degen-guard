@@ -108,6 +108,9 @@ cdpOnboardingRoutes.get('/:address/funding-status', async (req, res) => {
     const native = result.balances.find((b: any) => b.token?.standard === "NATIVE");
     const nativeWei = native ? BigInt(native.amount?.amount ?? "0") : BigInt(0);
     const funded = nativeWei >= MIN_WEI;
+    
+    // Convert BigInt to string for JSON serialization
+    const balance = nativeWei.toString();
 
     // Update account status
     if (funded) {
@@ -148,7 +151,7 @@ cdpOnboardingRoutes.get('/:address/funding-status', async (req, res) => {
     const balanceData = {
       balances: result.balances.map((balance: any) => ({
         asset: balance.token?.symbol || 'UNKNOWN',
-        amount: balance.amount?.amount || '0',
+        amount: (balance.amount?.amount || '0').toString(), // Ensure string conversion
         decimals: balance.amount?.decimals || 18
       }))
     };

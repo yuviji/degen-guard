@@ -1,9 +1,47 @@
 import { CdpClient } from "@coinbase/cdp-sdk";
 import { Alchemy, Network } from "alchemy-sdk";
 import * as dotenv from "dotenv";
-import { generateCdpJwt } from "./cdp-auth";
 
 dotenv.config();
+
+/**
+ * Simple rate limiter for CDP API calls
+ * Ensures we don't exceed 5 requests per second
+ */
+class RateLimiter {
+  private requests: number[] = [];
+  private maxRequests: number;
+  private timeWindow: number;
+
+  constructor(maxRequests: number = 5, timeWindowMs: number = 1000) {
+    this.maxRequests = maxRequests;
+    this.timeWindow = timeWindowMs;
+  }
+
+  async waitForAvailableSlot(): Promise<void> {
+    const now = Date.now();
+    
+    // Remove requests older than the time window
+    this.requests = this.requests.filter(timestamp => now - timestamp < this.timeWindow);
+    
+    // If we're at the limit, wait until we can make another request
+    if (this.requests.length >= this.maxRequests) {
+      const oldestRequest = Math.min(...this.requests);
+      const waitTime = this.timeWindow - (now - oldestRequest) + 10; // Add 10ms buffer
+      
+      if (waitTime > 0) {
+        console.log(`Rate limiting: waiting ${waitTime}ms before next CDP API call`);
+        await new Promise(resolve => setTimeout(resolve, waitTime));
+      }
+    }
+    
+    // Record this request
+    this.requests.push(Date.now());
+  }
+}
+
+// Create rate limiter instance
+const cdpRateLimiter = new RateLimiter(4, 1000); // Use 4 requests/second to be safe
 
 if (!process.env.CDP_API_KEY_ID || !process.env.CDP_API_KEY_SECRET) {
   throw new Error("Missing CDP_API_KEY_ID/CDP_API_KEY_SECRET environment variables");
@@ -174,6 +212,9 @@ export async function getTokenBalances(
   network: SupportedNetwork = SUPPORTED_NETWORKS.BASE_MAINNET
 ): Promise<TokenBalance[]> {
   try {
+    // Wait for rate limiter before making the request
+    await cdpRateLimiter.waitForAvailableSlot();
+    
     const result = await cdpData.evm.listTokenBalances({
       address,
       network,
@@ -235,20 +276,21 @@ export async function getPortfolioSnapshot(
  * Query historical data using CDP SQL API
  */
 export async function queryHistoricalData(sqlQuery: string): Promise<any[]> {
-  // COMMENTED OUT: SQL API queries disabled for dashboard testing
-  /*
   try {
-    // Generate JWT token for CDP SQL API
-    const token = await generateCdpJwt({
-      requestMethod: 'POST',
-      requestHost: 'api.cdp.coinbase.com',
-      requestPath: '/platform/v2/data/query/run'
-    });
+    // Wait for rate limiter before making the request
+    await cdpRateLimiter.waitForAvailableSlot();
+    
+    // Use OnchainKit API key for SQL API authentication
+    const apiKey = process.env.NEXT_PUBLIC_ONCHAINKIT_API_KEY;
+    
+    if (!apiKey) {
+      throw new Error("Missing NEXT_PUBLIC_ONCHAINKIT_API_KEY environment variable");
+    }
     
     const response = await fetch('https://api.cdp.coinbase.com/platform/v2/data/query/run', {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${token}`,
+        'Authorization': `Bearer ${apiKey}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({ sql: sqlQuery }),
@@ -259,17 +301,30 @@ export async function queryHistoricalData(sqlQuery: string): Promise<any[]> {
       throw new Error(`SQL API request failed: ${response.statusText} - ${errorText}`);
     }
 
-    const data = await response.json();
-    return data.rows || [];
+    const responseText = await response.text();
+    
+    // Check if response is HTML (service outage) instead of JSON
+    if (responseText.includes('<html>') || responseText.includes('<!DOCTYPE')) {
+      throw new Error('CDP API service is currently unavailable. Please check https://status.coinbase.com');
+    }
+    
+    try {
+      const data = JSON.parse(responseText);
+      return data.rows || [];
+    } catch (parseError) {
+      throw new Error(`Invalid JSON response from CDP API: ${responseText.substring(0, 200)}...`);
+    }
   } catch (error) {
     console.error('Error executing SQL query:', error);
+    
+    // Check if it's a service outage error
+    if (error instanceof Error && error.message.includes('CDP API service is currently unavailable')) {
+      console.warn('CDP API service is down, returning empty result set');
+      return []; // Return empty array instead of throwing
+    }
+    
     throw error;
   }
-  */
-  
-  // Return empty array for dashboard testing
-  console.log('SQL query disabled for dashboard testing:', sqlQuery);
-  return [];
 }
 
 /**
@@ -280,46 +335,70 @@ export async function getHistoricalBalances(
   days: number = 7,
   network: string = 'base'
 ): Promise<HistoricalBalance[]> {
-  // COMMENTED OUT: SQL queries disabled for dashboard testing
-  /*
-  // Use corrected SQL API query for Base network transfers
   const sqlQuery = `
     SELECT 
-      block_timestamp as timestamp,
-      value / 1e18 as eth_balance
-    FROM base.transfers 
-    WHERE (to_address = '${address.toLowerCase()}' OR from_address = '${address.toLowerCase()}')
-      AND block_timestamp >= now() - INTERVAL ${days} DAY
-      AND event_signature = 'Transfer(address,address,uint256)'
+      block_timestamp,
+      parameters
+    FROM base.events 
+    WHERE event_signature = 'Transfer(address,address,uint256)'
+      AND (parameters['from'] = '${address.toLowerCase()}' OR parameters['to'] = '${address.toLowerCase()}')
+      AND action = 1
     ORDER BY block_timestamp DESC
     LIMIT 100
   `;
+  console.log("SQL QUERY:", sqlQuery)
 
   try {
     const rows = await queryHistoricalData(sqlQuery);
-    return rows.map(row => ({
-      timestamp: new Date(row.timestamp),
-      totalValue: parseFloat(row.eth_balance || '0'),
-      address,
-    }));
+    
+    // Process rows to calculate balance changes
+    const balanceMap = new Map<string, number>();
+    
+    rows.forEach(row => {
+      const timestamp = new Date(row.block_timestamp).toISOString();
+      const params = row.parameters || {};
+      
+      // Extract Transfer event parameters
+      const fromAddress = params.from?.toLowerCase();
+      const toAddress = params.to?.toLowerCase();
+      const value = parseFloat(params.value || '0');
+      
+      if (!balanceMap.has(timestamp)) {
+        balanceMap.set(timestamp, 0);
+      }
+      
+      // Add value if receiving, subtract if sending
+      if (toAddress === address.toLowerCase()) {
+        balanceMap.set(timestamp, balanceMap.get(timestamp)! + value);
+      } else if (fromAddress === address.toLowerCase()) {
+        balanceMap.set(timestamp, balanceMap.get(timestamp)! - value);
+      }
+    });
+    
+    // Convert map to array and sort by timestamp
+    return Array.from(balanceMap.entries())
+      .map(([timestamp, balanceChange]) => ({
+        timestamp: new Date(timestamp),
+        totalValue: balanceChange,
+        address,
+      }))
+      .sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
+      
   } catch (error) {
     console.error('Error fetching historical balances:', error);
+    
+    // If CDP service is down, return mock/fallback data to keep UI functional
+    if (error instanceof Error && error.message.includes('CDP API service is currently unavailable')) {
+      console.warn('CDP service down, returning fallback historical data');
+      return [{
+        timestamp: new Date(Date.now() - 24 * 60 * 60 * 1000), // 24 hours ago
+        totalValue: 0,
+        address,
+      }];
+    }
+    
     return [];
   }
-  */
-  
-  // Return mock historical data for dashboard testing
-  const mockData: HistoricalBalance[] = [];
-  for (let i = 0; i < days; i++) {
-    const date = new Date();
-    date.setDate(date.getDate() - i);
-    mockData.push({
-      timestamp: date,
-      totalValue: 1000 + Math.random() * 500, // Mock values between $1000-$1500
-      address,
-    });
-  }
-  return mockData.reverse();
 }
 
 /**
@@ -330,8 +409,6 @@ export async function getTransactionHistory(
   limit: number = 50,
   network: string = 'base'
 ): Promise<any[]> {
-  // COMMENTED OUT: SQL queries disabled for dashboard testing
-  /*
   const sqlQuery = `
     SELECT 
       transaction_hash,
@@ -339,11 +416,10 @@ export async function getTransactionHistory(
       block_timestamp,
       from_address,
       to_address,
-      value,
-      gas_used,
-      gas_price
+      value
     FROM base.transactions 
-    WHERE (to_address = '${address.toLowerCase()}' OR from_address = '${address.toLowerCase()}')
+    WHERE (from_address = '${address.toLowerCase()}' OR to_address = '${address.toLowerCase()}')
+      AND action = 1
     ORDER BY block_timestamp DESC
     LIMIT ${limit}
   `;
@@ -352,13 +428,14 @@ export async function getTransactionHistory(
     return await queryHistoricalData(sqlQuery);
   } catch (error) {
     console.error('Error fetching transaction history:', error);
+    
+    // If CDP service is down, return empty array gracefully
+    if (error instanceof Error && error.message.includes('CDP API service is currently unavailable')) {
+      console.warn('CDP service down, transaction history unavailable');
+    }
+    
     return [];
   }
-  */
-  
-  // Return empty array for dashboard testing
-  console.log('Transaction history disabled for dashboard testing');
-  return [];
 }
 
 /**
@@ -368,18 +445,24 @@ export async function getDeFiPositions(
   address: string,
   network: string = 'base'
 ): Promise<any[]> {
-  // COMMENTED OUT: SQL queries disabled for dashboard testing
-  /*
   const sqlQuery = `
     SELECT 
-      contract_address,
+      address as contract_address,
       event_signature,
-      decoded_log,
+      event_name,
+      parameters,
+      parameter_types,
       block_timestamp,
-      transaction_hash
-    FROM base.events 
-    WHERE (decoded_log LIKE '%${address.toLowerCase()}%')
-      AND event_signature IN ('Transfer(address,address,uint256)', 'Deposit(address,uint256)', 'Withdraw(address,uint256)')
+      transaction_hash,
+      transaction_from,
+      transaction_to
+    FROM base.decoded_logs 
+    WHERE (
+      (parameters['from'] = '${address.toLowerCase()}' OR parameters['to'] = '${address.toLowerCase()}')
+      OR (transaction_from = '${address.toLowerCase()}' OR transaction_to = '${address.toLowerCase()}')
+    )
+      AND event_name IN ('Transfer', 'Deposit', 'Withdraw', 'Mint', 'Burn', 'Swap')
+      AND action = 1
     ORDER BY block_timestamp DESC
     LIMIT 100
   `;
@@ -390,11 +473,6 @@ export async function getDeFiPositions(
     console.error('Error fetching DeFi positions:', error);
     return [];
   }
-  */
-  
-  // Return empty array for dashboard testing
-  console.log('DeFi positions disabled for dashboard testing');
-  return [];
 }
 
 /**

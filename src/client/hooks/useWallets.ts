@@ -1,17 +1,8 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '@/contexts/auth-context';
+import { accountsApi, Account } from '@/lib/api';
 
-interface Account {
-  id: string;
-  user_id: string;
-  type: string;
-  cdp_account_id?: string;
-  address: string;
-  chain: string;
-  status: string;
-  first_funded_at?: string;
-  created_at: string;
-}
+
 
 interface UseAccountsResult {
   accounts: Account[];
@@ -36,29 +27,7 @@ export function useAccounts(): UseAccountsResult {
     setError(null);
 
     try {
-      const response = await fetch('/api/accounts', {
-        method: 'GET',
-        credentials: 'include',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${session.access_token}`,
-        },
-      });
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error(`API Error ${response.status}:`, errorText);
-        
-        if (response.status === 401) {
-          throw new Error('Authentication required');
-        } else if (response.status === 404) {
-          throw new Error('Accounts endpoint not found - check server routing');
-        } else {
-          throw new Error(`Failed to fetch accounts: ${response.status} ${errorText}`);
-        }
-      }
-
-      const data = await response.json();
+      const data = await accountsApi.getAll();
       setAccounts(data);
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Unknown error occurred';
