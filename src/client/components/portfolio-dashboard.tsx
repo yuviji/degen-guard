@@ -19,7 +19,7 @@ import {
   Area,
 } from "recharts"
 import { TrendingUp, CreditCard, Shield, Bell, Clock, ArrowUpRight, ArrowDownRight, ExternalLink, RefreshCw } from "lucide-react"
-import { portfolioApi, PortfolioMetrics, ApiError } from "@/lib/api"
+import { portfolioApi, accountsApi, rulesApi, alertsApi, PortfolioMetrics, ApiError } from "@/lib/api"
 
 // Asset color mapping for consistent visualization
 const ASSET_COLORS: Record<string, string> = {
@@ -67,26 +67,49 @@ export function PortfolioDashboard() {
   const [portfolioData, setPortfolioData] = useState<PortfolioMetrics | null>(null)
   const [performanceData, setPerformanceData] = useState<Array<{ time: string; value: number }>>([])
   const [recentTransactions, setRecentTransactions] = useState<Array<any>>([])
+  const [connectedAccounts, setConnectedAccounts] = useState<number>(0)
+  const [activeRules, setActiveRules] = useState<number>(0)
+  const [recentAlerts, setRecentAlerts] = useState<number>(0)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [lastSync, setLastSync] = useState<Date>(new Date())
   const [isConnected, setIsConnected] = useState(true)
+  const [autoRefresh, setAutoRefresh] = useState(true)
 
   useEffect(() => {
     fetchPortfolioData()
-  }, [])
+    
+    // Set up auto-refresh every 30 seconds
+    let interval: NodeJS.Timeout | null = null
+    if (autoRefresh) {
+      interval = setInterval(() => {
+        fetchPortfolioData()
+      }, 30000)
+    }
+    
+    return () => {
+      if (interval) clearInterval(interval)
+    }
+  }, [autoRefresh])
 
   const fetchPortfolioData = async () => {
     try {
       setLoading(true)
       setError(null)
       
-      // Fetch portfolio overview
-      const overview = await portfolioApi.getOverview()
+      // Fetch all data in parallel for better performance
+      const [overview, history, transactions, accounts, rules, alertStats] = await Promise.all([
+        portfolioApi.getOverview(),
+        portfolioApi.getHistory(1), // Last 24 hours
+        portfolioApi.getTransactions(5),
+        accountsApi.getAll(),
+        rulesApi.getAll(),
+        alertsApi.getStats()
+      ])
+      
       setPortfolioData(overview)
       
-      // Fetch performance history
-      const history = await portfolioApi.getHistory(1) // Last 24 hours
+      // Format performance history
       const formattedHistory = history.map((point, index) => ({
         time: new Date(point.timestamp).toLocaleTimeString('en-US', { 
           hour: '2-digit', 
@@ -97,9 +120,10 @@ export function PortfolioDashboard() {
       }))
       setPerformanceData(formattedHistory)
       
-      // Fetch recent transactions
-      const transactions = await portfolioApi.getTransactions(5)
       setRecentTransactions(transactions)
+      setConnectedAccounts(accounts.length)
+      setActiveRules(rules.filter(rule => rule.is_active).length)
+      setRecentAlerts(alertStats.alerts_last_24h || 0)
       
       setLastSync(new Date())
       setIsConnected(true)
@@ -164,7 +188,7 @@ export function PortfolioDashboard() {
     )
   }
 
-  if (!isConnected || portfolioData.total_usd_value > 0) {
+  if (!isConnected || portfolioData.total_usd_value === 0) {
     return (
       <div className="container mx-auto p-6">
         <div className="flex items-center justify-center min-h-[60vh]">
@@ -197,6 +221,13 @@ export function PortfolioDashboard() {
           <Badge variant="outline" className="text-xs">
             <Clock className="mr-1 h-3 w-3" />
             Last sync: {formatTimeAgo(lastSync)}
+          </Badge>
+          <Badge 
+            variant={autoRefresh ? "default" : "outline"} 
+            className="text-xs cursor-pointer"
+            onClick={() => setAutoRefresh(!autoRefresh)}
+          >
+            {autoRefresh ? "Auto-refresh ON" : "Auto-refresh OFF"}
           </Badge>
           <Button variant="outline" size="sm" onClick={fetchPortfolioData} disabled={loading}>
             <RefreshCw className={`mr-2 h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
@@ -277,8 +308,12 @@ export function PortfolioDashboard() {
             <CreditCard className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold metric-value">-</div>
-            <p className="text-xs text-muted-foreground">Loading account data</p>
+            <div className="text-2xl font-bold metric-value">{connectedAccounts}</div>
+            <p className="text-xs text-muted-foreground">
+              {connectedAccounts === 0 ? "No accounts connected" : 
+               connectedAccounts === 1 ? "1 account active" : 
+               `${connectedAccounts} accounts active`}
+            </p>
           </CardContent>
         </Card>
 
@@ -288,8 +323,12 @@ export function PortfolioDashboard() {
             <Shield className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold metric-value">-</div>
-            <p className="text-xs text-chart-3">Loading rules data</p>
+            <div className="text-2xl font-bold metric-value">{activeRules}</div>
+            <p className="text-xs text-chart-3">
+              {activeRules === 0 ? "No active monitoring rules" : 
+               activeRules === 1 ? "1 rule monitoring" : 
+               `${activeRules} rules monitoring`}
+            </p>
           </CardContent>
         </Card>
 
@@ -299,8 +338,12 @@ export function PortfolioDashboard() {
             <Bell className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold metric-value">-</div>
-            <p className="text-xs text-chart-2">Loading alerts data</p>
+            <div className="text-2xl font-bold metric-value">{recentAlerts}</div>
+            <p className="text-xs text-chart-2">
+              {recentAlerts === 0 ? "No alerts in 24h" : 
+               recentAlerts === 1 ? "1 alert in 24h" : 
+               `${recentAlerts} alerts in 24h`}
+            </p>
           </CardContent>
         </Card>
       </div>

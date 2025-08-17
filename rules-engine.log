@@ -765,3 +765,5 @@
 {"level":"info","message":"Completed evaluation of 0 rules","timestamp":"2025-08-17T06:25:01.017Z"}
 {"level":"info","message":"Rules engine started - evaluating every 5 minutes","timestamp":"2025-08-17T06:26:03.066Z"}
 {"level":"info","message":"Rules engine shutting down...","timestamp":"2025-08-17T06:27:44.242Z"}
+{"level":"info","message":"Rules engine started - evaluating every 5 minutes","timestamp":"2025-08-17T06:31:28.589Z"}
+{"level":"info","message":"Rules engine shutting down...","timestamp":"2025-08-17T06:31:59.124Z"}

@@ -10,6 +10,7 @@ import { portfolioRoutes } from './routes/portfolio';
 import { cdpOnboardingRoutes } from './routes/cdp-onboarding';
 import { authRoutes } from './routes/auth';
 import onrampRoutes from './routes/onramp';
+import { webhookRoutes } from './routes/webhooks';
 
 dotenv.config();
 
@@ -34,6 +35,7 @@ app.use('/api/onramp', onrampRoutes);
 app.use('/api/rules', ruleRoutes);
 app.use('/api/alerts', alertRoutes);
 app.use('/api/portfolio', portfolioRoutes);
+app.use('/api/webhooks', webhookRoutes);
 
 // Health check
 app.get('/api/health', (req, res) => {
