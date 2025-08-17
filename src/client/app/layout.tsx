@@ -1,8 +1,10 @@
+import '@coinbase/onchainkit/styles.css'
 import type React from "react"
 import type { Metadata } from "next"
 import { Playfair_Display, Source_Sans_3 as Source_Sans_Pro } from "next/font/google"
 import "./globals.css"
 import { Toaster } from "@/components/ui/toaster"
+import { Providers } from './providers'
 
 const playfair = Playfair_Display({
   subsets: ["latin"],
@@ -32,7 +34,9 @@ export default function RootLayout({
   return (
     <html lang="en" className={`${playfair.variable} ${sourceSans.variable} dark`}>
       <body className="font-sans antialiased">
-        {children}
+        <Providers>
+          {children}
+        </Providers>
         <Toaster />
       </body>
     </html>

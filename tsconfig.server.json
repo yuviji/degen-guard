@@ -6,7 +6,8 @@
     "target": "ES2022",
     "module": "CommonJS",
     "moduleResolution": "node",
-    "rootDir": "src"
+    "rootDir": "src",
+    "skipLibCheck": true
   },
   "include": [
     "src/server/**/*",
@@ -15,6 +16,7 @@
     "src/worker/**/*"
   ],
   "exclude": [
-    "src/client/**/*"
+    "src/client/**/*",
+    "node_modules/**/*"
   ]
 }

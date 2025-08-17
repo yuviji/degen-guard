@@ -164,19 +164,19 @@ export function PortfolioDashboard() {
     )
   }
 
-  if (!isConnected || portfolioData.total_usd_value === 0) {
+  if (!isConnected || portfolioData.total_usd_value > 0) {
     return (
       <div className="container mx-auto p-6">
         <div className="flex items-center justify-center min-h-[60vh]">
           <Card className="w-full max-w-md">
             <CardHeader className="text-center">
-              <CardTitle className="text-2xl">Welcome to DegenGuard</CardTitle>
-              <p className="text-muted-foreground">Connect your account to start monitoring your DeFi portfolio</p>
+              <CardTitle className="text-2xl">Fund Your Guardian</CardTitle>
+              <p className="text-muted-foreground">Add crypto to your secure account to start monitoring your DeFi portfolio</p>
             </CardHeader>
             <CardContent className="text-center">
-              <Button size="lg" className="w-full" onClick={() => window.location.href = '/dashboard'}>
+              <Button size="lg" className="w-full" onClick={() => window.location.href = '/fund'}>
                 <CreditCard className="mr-2 h-4 w-4" />
-                Connect Account
+                Fund Account
               </Button>
             </CardContent>
           </Card>

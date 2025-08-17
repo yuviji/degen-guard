@@ -84,64 +84,64 @@ class RulesEngine {
   }
 
   async getPortfolioMetrics(userId: string): Promise<PortfolioMetrics> {
-    // Get total portfolio value from latest wallet balance
+    // Get total portfolio value from latest account balance
     const totalValueResult = await pool.query(`
       SELECT 
-        COALESCE((wb.payload->>'total_usd_value')::DECIMAL, 0) as total_usd_value
-      FROM user_wallets uw
+        COALESCE((ab.payload->>'total_usd_value')::DECIMAL, 0) as total_usd_value
+      FROM user_accounts ua
       JOIN LATERAL (
         SELECT payload 
-        FROM wallet_balances 
-        WHERE address = uw.address 
+        FROM account_balances 
+        WHERE address = ua.address 
         ORDER BY as_of DESC 
         LIMIT 1
-      ) wb ON true
-      WHERE uw.user_id = $1 AND uw.status = 'active'
+      ) ab ON true
+      WHERE ua.user_id = $1 AND ua.status = 'active'
     `, [userId]);
 
-    // Get stablecoin allocation from wallet balance payload
+    // Get stablecoin allocation from account balance payload
     const stablecoinResult = await pool.query(`
       SELECT 
         COALESCE(
           (SELECT SUM((balance->>'usd_value')::DECIMAL)
-           FROM jsonb_array_elements(wb.payload->'balances') AS balance
+           FROM jsonb_array_elements(ab.payload->'balances') AS balance
            WHERE balance->>'symbol' IN ('USDC', 'USDT', 'DAI', 'BUSD', 'FRAX')), 0
         ) as stablecoin_value,
-        COALESCE((wb.payload->>'total_usd_value')::DECIMAL, 0) as total_value
-      FROM user_wallets uw
+        COALESCE((ab.payload->>'total_usd_value')::DECIMAL, 0) as total_value
+      FROM user_accounts ua
       JOIN LATERAL (
         SELECT payload 
-        FROM wallet_balances 
-        WHERE address = uw.address 
+        FROM account_balances 
+        WHERE address = ua.address 
         ORDER BY as_of DESC 
         LIMIT 1
-      ) wb ON true
-      WHERE uw.user_id = $1 AND uw.status = 'active'
+      ) ab ON true
+      WHERE ua.user_id = $1 AND ua.status = 'active'
     `, [userId]);
 
-    // Get largest position from wallet balance payload
+    // Get largest position from account balance payload
     const largestPositionResult = await pool.query(`
       SELECT 
         MAX(
           CASE 
-            WHEN (wb.payload->>'total_usd_value')::DECIMAL > 0 THEN 
-              ((balance->>'usd_value')::DECIMAL / (wb.payload->>'total_usd_value')::DECIMAL) * 100
+            WHEN (ab.payload->>'total_usd_value')::DECIMAL > 0 THEN 
+              ((balance->>'usd_value')::DECIMAL / (ab.payload->>'total_usd_value')::DECIMAL) * 100
             ELSE 0 
           END
         ) as largest_position_pct
-      FROM user_wallets uw
+      FROM user_accounts ua
       JOIN LATERAL (
         SELECT payload 
-        FROM wallet_balances 
-        WHERE address = uw.address 
+        FROM account_balances 
+        WHERE address = ua.address 
         ORDER BY as_of DESC 
         LIMIT 1
-      ) wb ON true,
-      jsonb_array_elements(wb.payload->'balances') AS balance
-      WHERE uw.user_id = $1 AND uw.status = 'active'
+      ) ab ON true,
+      jsonb_array_elements(ab.payload->'balances') AS balance
+      WHERE ua.user_id = $1 AND ua.status = 'active'
     `, [userId]);
 
-    // Calculate daily PnL from wallet balance history
+    // Calculate daily PnL from account balance history
     const dailyPnlResult = await pool.query(`
       SELECT 
         COALESCE(
@@ -152,23 +152,23 @@ class RulesEngine {
           END,
           0
         ) as daily_pnl_pct
-      FROM user_wallets uw
+      FROM user_accounts ua
       LEFT JOIN LATERAL (
         SELECT (payload->>'total_usd_value')::DECIMAL as total_value
-        FROM wallet_balances 
-        WHERE address = uw.address 
+        FROM account_balances 
+        WHERE address = ua.address 
         ORDER BY as_of DESC 
         LIMIT 1
       ) current_balance ON true
       LEFT JOIN LATERAL (
         SELECT (payload->>'total_usd_value')::DECIMAL as total_value
-        FROM wallet_balances 
-        WHERE address = uw.address 
+        FROM account_balances 
+        WHERE address = ua.address 
           AND as_of <= NOW() - INTERVAL '24 hours'
         ORDER BY as_of DESC 
         LIMIT 1
       ) prev_balance ON true
-      WHERE uw.user_id = $1 AND uw.status = 'active'
+      WHERE ua.user_id = $1 AND ua.status = 'active'
     `, [userId]);
 
     const totalValue = parseFloat(totalValueResult.rows[0]?.total_usd_value || '0');
@@ -247,12 +247,12 @@ class RulesEngine {
 // Initialize and start the rules engine
 const rulesEngine = new RulesEngine();
 
-// Run every 30 seconds
-cron.schedule('*/30 * * * * *', async () => {
+// Run every 5 minutes
+cron.schedule('*/5 * * * *', async () => {
   await rulesEngine.evaluateAllRules();
 });
 
-logger.info('Rules engine started - evaluating every 30 seconds');
+logger.info('Rules engine started - evaluating every 5 minutes');
 
 // Keep the process running
 process.on('SIGINT', () => {

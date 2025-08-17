@@ -8,8 +8,8 @@ import { ruleRoutes } from './routes/rules';
 import { alertRoutes } from './routes/alerts';
 import { portfolioRoutes } from './routes/portfolio';
 import { cdpOnboardingRoutes } from './routes/cdp-onboarding';
-import { fundingRoutes } from './routes/funding';
 import { authRoutes } from './routes/auth';
+import onrampRoutes from './routes/onramp';
 
 dotenv.config();
 
@@ -30,7 +30,7 @@ app.use(express.json());
 app.use('/api/auth', authRoutes);
 app.use('/api/accounts', accountRoutes);
 app.use('/api/cdp', cdpOnboardingRoutes);
-app.use('/api/funding', fundingRoutes);
+app.use('/api/onramp', onrampRoutes);
 app.use('/api/rules', ruleRoutes);
 app.use('/api/alerts', alertRoutes);
 app.use('/api/portfolio', portfolioRoutes);

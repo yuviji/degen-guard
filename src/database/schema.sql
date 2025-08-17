@@ -46,27 +46,10 @@ CREATE TABLE account_events (
     id BIGSERIAL PRIMARY KEY,
     address TEXT NOT NULL,
     occurred_at TIMESTAMP WITH TIME ZONE NOT NULL,
-    kind TEXT NOT NULL CHECK (kind IN ('transfer_in', 'transfer_out', 'swap', 'approval', 'funding', 'other')),
+    kind TEXT NOT NULL CHECK (kind IN ('transfer_in', 'transfer_out', 'swap', 'approval', 'other')),
     tx_hash TEXT UNIQUE,
     chain TEXT DEFAULT 'base',
     details JSONB
-);
-
--- Account funding operations table
-CREATE TABLE account_funding_operations (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    address TEXT NOT NULL,
-    amount_usd DECIMAL(20, 8) NOT NULL,
-    asset TEXT NOT NULL, -- 'USDC', 'ETH', etc.
-    network TEXT NOT NULL DEFAULT 'base',
-    status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'processing', 'completed', 'failed')),
-    cdp_operation_id TEXT,
-    quote_id TEXT,
-    payment_method_id TEXT,
-    error_message TEXT,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    completed_at TIMESTAMP WITH TIME ZONE
 );
 
 -- ============================================================================
@@ -118,9 +101,6 @@ CREATE INDEX idx_account_balances_as_of ON account_balances(as_of);
 CREATE INDEX idx_account_events_address ON account_events(address);
 CREATE INDEX idx_account_events_occurred_at ON account_events(occurred_at);
 CREATE INDEX idx_account_events_tx_hash ON account_events(tx_hash);
-CREATE INDEX idx_account_funding_operations_user_id ON account_funding_operations(user_id);
-CREATE INDEX idx_account_funding_operations_address ON account_funding_operations(address);
-CREATE INDEX idx_account_funding_operations_status ON account_funding_operations(status);
 
 -- Rules and alerts indexes
 CREATE INDEX idx_rules_user_id ON rules(user_id);

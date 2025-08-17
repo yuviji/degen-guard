@@ -21,38 +21,38 @@ class DataIngestionWorker {
     try {
       logger.info('Starting wallet data sync cycle');
 
-      // Get all active user wallets
-      const walletsResult = await pool.query('SELECT * FROM user_wallets WHERE status = \'active\'');
+      // Get all active user accounts
+      const accountsResult = await pool.query('SELECT * FROM user_accounts WHERE status = \'active\'');
       
-      for (const wallet of walletsResult.rows) {
-        await this.syncWalletData(wallet);
+      for (const account of accountsResult.rows) {
+        await this.syncAccountData(account);
       }
 
-      logger.info(`Completed sync for ${walletsResult.rows.length} wallets`);
+      logger.info(`Completed sync for ${accountsResult.rows.length} accounts`);
     } catch (error) {
       logger.error('Error in wallet sync cycle:', error);
     }
   }
 
-  async syncWalletData(wallet: any): Promise<void> {
+  async syncAccountData(account: any): Promise<void> {
     try {
-      logger.info(`Syncing wallet ${wallet.address} on ${wallet.chain}`);
+      logger.info(`Syncing account ${account.address} on ${account.chain}`);
 
       // Fetch and store balances
-      await this.syncWalletBalances(wallet);
+      await this.syncAccountBalances(account);
       
       // Fetch and store transactions
-      await this.syncWalletTransactions(wallet);
+      await this.syncAccountTransactions(account);
 
-      logger.info(`Successfully synced wallet ${wallet.address}`);
+      logger.info(`Successfully synced account ${account.address}`);
     } catch (error) {
-      logger.error(`Error syncing wallet ${wallet.address}:`, error);
+      logger.error(`Error syncing account ${account.address}:`, error);
     }
   }
 
-  async syncWalletBalances(wallet: any): Promise<void> {
+  async syncAccountBalances(account: any): Promise<void> {
     try {
-      const balances = await cdpService.getWalletBalances(wallet.address, wallet.chain);
+      const balances = await cdpService.getWalletBalances(account.address, account.chain);
 
       // Calculate total USD value
       let totalUsdValue = 0;
@@ -88,32 +88,32 @@ class DataIngestionWorker {
         });
       }
 
-      // Store wallet balance snapshot in new format
+      // Store account balance snapshot in new format
       await pool.query(`
-        INSERT INTO wallet_balances (address, payload)
+        INSERT INTO account_balances (address, payload)
         VALUES ($1, $2)
       `, [
-        wallet.address,
+        account.address,
         JSON.stringify({
           total_usd_value: totalUsdValue.toString(),
           balances: balanceEntries
         })
       ]);
 
-      logger.info(`Stored balance snapshot for wallet ${wallet.address} with total value $${totalUsdValue.toFixed(2)}`);
+      logger.info(`Stored balance snapshot for account ${account.address} with total value $${totalUsdValue.toFixed(2)}`);
     } catch (error) {
-      logger.error(`Error syncing balances for wallet ${wallet.address}:`, error);
+      logger.error(`Error syncing balances for account ${account.address}:`, error);
     }
   }
 
-  async syncWalletTransactions(wallet: any): Promise<void> {
+  async syncAccountTransactions(account: any): Promise<void> {
     try {
-      const transactions = await cdpService.getWalletTransactions(wallet.address, wallet.chain, 20);
+      const transactions = await cdpService.getWalletTransactions(account.address, account.chain, 20);
 
       for (const tx of transactions) {
         // Check if transaction already exists
         const existingTx = await pool.query(
-          'SELECT id FROM wallet_events WHERE tx_hash = $1',
+          'SELECT id FROM account_events WHERE tx_hash = $1',
           [tx.hash]
         );
 
@@ -123,9 +123,9 @@ class DataIngestionWorker {
 
         // Determine event kind based on transaction data
         let kind = 'other';
-        if (tx.from_address?.toLowerCase() === wallet.address.toLowerCase()) {
+        if (tx.from_address?.toLowerCase() === account.address.toLowerCase()) {
           kind = 'transfer_out';
-        } else if (tx.to_address?.toLowerCase() === wallet.address.toLowerCase()) {
+        } else if (tx.to_address?.toLowerCase() === account.address.toLowerCase()) {
           kind = 'transfer_in';
         }
         if (tx.type && tx.type.toLowerCase().includes('swap')) {
@@ -145,7 +145,7 @@ class DataIngestionWorker {
 
         // Insert transaction in new format
         await pool.query(`
-          INSERT INTO wallet_events (
+          INSERT INTO account_events (
             address,
             occurred_at,
             kind,
@@ -155,11 +155,11 @@ class DataIngestionWorker {
           )
           VALUES ($1, $2, $3, $4, $5, $6)
         `, [
-          wallet.address,
+          account.address,
           new Date(tx.block_timestamp),
           kind,
           tx.hash,
-          wallet.chain,
+          account.chain,
           JSON.stringify({
             block_height: tx.block_height,
             from_address: tx.from_address,
@@ -172,23 +172,23 @@ class DataIngestionWorker {
         ]);
       }
 
-      logger.info(`Stored ${transactions.length} transactions for wallet ${wallet.address}`);
+      logger.info(`Stored ${transactions.length} transactions for account ${account.address}`);
     } catch (error) {
-      logger.error(`Error syncing transactions for wallet ${wallet.address}:`, error);
+      logger.error(`Error syncing transactions for account ${account.address}:`, error);
     }
   }
 
   async cleanupOldData(): Promise<void> {
     try {
-      // Keep only last 30 days of wallet balance snapshots
+      // Keep only last 30 days of account balance snapshots
       await pool.query(`
-        DELETE FROM wallet_balances 
+        DELETE FROM account_balances 
         WHERE as_of < NOW() - INTERVAL '30 days'
       `);
 
-      // Keep only last 90 days of wallet events
+      // Keep only last 90 days of account events
       await pool.query(`
-        DELETE FROM wallet_events 
+        DELETE FROM account_events 
         WHERE occurred_at < NOW() - INTERVAL '90 days'
       `);
 
@@ -208,8 +208,8 @@ class DataIngestionWorker {
 // Initialize and start the data ingestion worker
 const dataWorker = new DataIngestionWorker();
 
-// Sync wallet data every 5 minutes
-cron.schedule('*/5 * * * *', async () => {
+// Sync account data every 5 seconds
+cron.schedule('*/5 * * * * *', async () => {
   await dataWorker.syncAllWallets();
 });
 
@@ -218,7 +218,7 @@ cron.schedule('0 2 * * *', async () => {
   await dataWorker.cleanupOldData();
 });
 
-logger.info('Data ingestion worker started - syncing every 5 minutes');
+logger.info('Data ingestion worker started - syncing every 5 seconds');
 
 // Keep the process running
 process.on('SIGINT', () => {
